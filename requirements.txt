@@ -1,0 +1,14 @@
+# Streamlit framework
+streamlit>=1.28.0
+
+# Google API clients
+google-auth>=2.23.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
+google-api-python-client>=2.100.0
+
+# Data manipulation
+pandas>=2.0.0
+
+# Other dependencies
+requests>=2.31.0
