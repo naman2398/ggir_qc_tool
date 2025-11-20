@@ -1,10 +1,10 @@
-# Design Document: Secure Participant File Finder & Editor
+# Design Document: Secure Participant File Finder & Editor (GGIR QC Tool)
 
-
+**Last Updated:** November 19, 2025
 
 ## 1. Overview
 
-This document outlines the design for the Secure Participant File Finder & Editor. The application's purpose is to provide authorized users at Stony Brook University with a simple, secure interface to find and interact with participant files stored in a structured Google Drive folder. Users will select an accelerometer type from a predefined list and then enter a participant ID. Based on this combination, the application will navigate a hierarchical folder structure (`accelerometer_name/participant_ID/output_participant_ID/results/`) to open three hardcoded files: one editable CSV file and two read-only PDF documents. When a user saves the edited CSV, the application automatically creates a new, versioned copy, ensuring a clear audit trail and protecting the integrity of the original data.
+This document outlines the design and implementation of the Secure Participant File Finder & Editor, a Streamlit application that provides authorized users with a simple, secure interface to find and interact with participant files stored in a structured Google Drive folder. Users select an accelerometer type from a predefined list and enter a participant ID. The application navigates a hierarchical folder structure (`accelerometer_name/participant_ID/output_participant_ID/results/`) to access three specific files: one editable CSV file and two read-only PDF documents. When users save edits to the CSV, the application automatically creates a new versioned copy, ensuring a clear audit trail and protecting the integrity of original data.
 
 ## 2. Goals and Objectives
 
@@ -20,33 +20,66 @@ The architecture supports both reading PDF links and a full read/write/version c
 
 ### 3.1 Components
 
-- **Frontend (UI)**: A web interface built with Streamlit. The UI will display:
-  - A dropdown selector to choose from a predefined list of accelerometer types.
-  - A text input field to enter the participant ID.
-  - Clickable links to the two non-editable PDF files.
-  - An interactive data editor widget (`st.data_editor`) for the editable CSV file.
+- **Frontend (UI)**: A web interface built with Streamlit featuring:
+  - Sidebar authentication with email input
+  - Dropdown selector for accelerometer types (ActiGraph, GENEActiv, Axivity, ActiSleep, Other)
+  - Text input field for participant ID
+  - Search button to locate participant files
+  - Clickable links to two read-only PDF files
+  - Interactive data editor widget (`st.data_editor`) with dynamic row support for the CSV file
+  - Save button with versioning information
+  - Success/error notifications with detailed logging
 
-- **Backend Logic**: A single Python script (`app.py`) handles user authentication, authorization, and all Google Drive API interactions.
+- **Backend Logic**: A single, well-commented Python script (`app.py`, ~541 lines) that handles:
+  - Google Drive API service initialization using service account credentials
+  - Google Sheets API service initialization for allowlist management
+  - User authorization checking against Google Sheets allowlist
+  - Hierarchical folder navigation in Google Drive
+  - File discovery and content retrieval
+  - CSV download and DataFrame conversion
+  - Automatic version detection and incremental versioning
+  - CSV upload with versioned filenames
 
-- **Hosting Platform**: Streamlit Community Cloud, which serves the application and manages secure credentials.
+- **Hosting Platform**: Streamlit Community Cloud, which serves the application and securely manages credentials via Streamlit Secrets
 
 - **Data Sources**:
-  - **Google Drive**: A root folder containing subfolders for each accelerometer type, which in turn contain subfolders for each participant (e.g., `ActiGraph/PID123/`).
-  - **Google Sheets**: A single sheet used as an "allowlist" to store the email addresses of authorized users.
+  - **Google Drive**: A root folder containing hierarchical structure:
+    - `[Accelerometer Type]/[Participant ID]/output_[Participant ID]/results/`
+    - Contains: `part4_nightsummary_sleep_cleaned.csv`, `visualisation_sleep.pdf`, `visualisation_data.pdf`
+  - **Google Sheets**: An allowlist spreadsheet storing authorized user email addresses (typically in column A)
 
 ### 3.2 Data Access and Editing Flow
 
-1. An authorized user selects an accelerometer type (e.g., "ActiGraph") from the dropdown list.
-2. The user enters a participant ID (e.g., PID123) and clicks "Search."
-3. The backend logic constructs the target path (`ActiGraph/PID123/output_PID123/results/`) and queries Google Drive for three specific, hardcoded filenames within that participant's folder:
-   - `part4_nightsummary_sleep_cleaned.csv` (for editing)
+1. **Authentication**: User enters their email address in the sidebar. The application queries the Google Sheets allowlist and validates authorization. Unauthorized users are blocked with an error message.
+
+2. **File Search**: User selects an accelerometer type from the dropdown (e.g., "ActiGraph") and enters a participant ID (e.g., "PID123"), then clicks "Search Files."
+
+3. **Path Construction**: The backend constructs the hierarchical path: `[Accelerometer]/[Participant ID]/output_[Participant ID]/results/`
+
+4. **Folder Navigation**: Using the `find_folder_by_path()` function, the application:
+   - Starts from the root folder ID (from secrets)
+   - Navigates through each folder level using Google Drive API queries
+   - Returns the target folder ID if found, or displays an error if not found
+
+5. **File Discovery**: The application searches for three specific files in the target folder:
+   - `part4_nightsummary_sleep_cleaned.csv` (editable)
    - `visualisation_sleep.pdf` (read-only)
    - `visualisation_data.pdf` (read-only)
-4. The application retrieves the web links for the two PDF files and displays them as hyperlinks.
-5. The application downloads the content of the `PID123_data.csv` file and loads it into the `st.data_editor` widget.
-6. The user edits the data in the grid and clicks "Save Changes."
-7. The backend checks for existing versions (`_v1`, `_v2`, etc.) within the same folder and creates a new versioned file (e.g., `part4_nightsummary_sleep_cleaned_v1.csv`) in the `ActiGraph/PID123/output_PID123/results/` folder.
-8. The UI displays a confirmation message, confirming that the new version has been saved.
+
+6. **Display Results**:
+   - PDF files: Displayed as hyperlinks using their `webViewLink` property
+   - CSV file: Downloaded via `download_csv_content()`, converted to pandas DataFrame, and displayed in `st.data_editor` with dynamic row editing enabled
+
+7. **Editing**: User modifies data in the interactive grid (can add, delete, or edit rows)
+
+8. **Saving with Versioning**:
+   - User clicks "Save Changes"
+   - `get_next_version_number()` scans the folder for existing versions (e.g., `_v1`, `_v2`)
+   - `upload_versioned_csv()` creates a new file with incremented version number
+   - Original file remains untouched
+   - Success message displays new filename, web view link, user details, and timestamp
+
+9. **Audit Trail**: Each save operation logs user email, timestamp, participant ID, and accelerometer type for tracking purposes.
 
 ### 3.3 Design Philosophy
 
@@ -72,10 +105,31 @@ The system shall:
 
 ### 4.2 Security Requirements
 
-- For development and version control, the application code shall use placeholder strings (e.g., "YOUR_CLIENT_ID", "PASTE_YOUR_JSON_HERE") for all sensitive credentials. These placeholders will be replaced by the actual secrets managed in the Streamlit Community Cloud environment upon deployment.
-- All application secrets (API keys, client IDs) will be managed via Streamlit Community Cloud's Secrets and will not be stored in the code repository.
-- User authentication will be handled via the industry-standard OAuth 2.0 protocol.
-- The application's Service Account must have "Contributor" (or "Editor") permissions on the target Google Drive folder to allow for the creation of new files.
+The system shall:
+
+- **Credential Management**: Store all sensitive credentials in Streamlit Community Cloud Secrets (never in code repository):
+  - `google_service_account`: Complete JSON service account credentials
+  - `root_folder_id`: Google Drive root folder ID
+  - `allowlist_sheet_id`: Google Sheets spreadsheet ID for authorization
+  - `allowlist_range`: Cell range for authorized emails (default: "Sheet1!A:A")
+
+- **Authentication**: Use Google Service Account authentication with appropriate OAuth scopes:
+  - `https://www.googleapis.com/auth/drive` for Drive API access
+  - `https://www.googleapis.com/auth/spreadsheets.readonly` for Sheets API access
+
+- **Authorization**: Implement email-based allowlist checking:
+  - Fetch authorized users from Google Sheets with 5-minute cache (`@st.cache_data(ttl=300)`)
+  - Perform case-insensitive email comparison
+  - Block unauthorized users immediately with error message
+
+- **Service Account Permissions**: The service account must have:
+  - Viewer access to the allowlist Google Sheet
+  - Editor/Contributor access to the root Google Drive folder (to create versioned files)
+  - Access to all participant subfolders
+
+- **API Service Caching**: Cache Google API service instances for 10 minutes (`@st.cache_resource(ttl=600)`) to improve performance and reduce authentication overhead
+
+- **Session Management**: Use Streamlit session state to maintain user authorization status and prevent re-authentication on every interaction
 
 ## 5. Deployment and Maintenance
 
@@ -85,9 +139,77 @@ The application will be deployed from its GitHub repository to Streamlit Communi
 
 ### 5.2 User Management (Rolling Basis)
 
-Managing user access is designed to be simple and require no technical intervention:
+Managing user access requires no code changes or redeployment:
 
-- **To Add a User**: An administrator opens the designated "App Access List" Google Sheet and adds the new user's email address.
-- **To Remove a User**: An administrator opens the Google Sheet and deletes the row containing the user's email address.
+- **To Add a User**: 
+  1. Open the designated allowlist Google Sheet
+  2. Add the new user's email address in column A
+  3. Changes take effect within 5 minutes (cache refresh interval)
 
-The application is configured to re-fetch this list periodically, so changes will take effect automatically without needing to restart or redeploy the app.
+- **To Remove a User**: 
+  1. Open the allowlist Google Sheet
+  2. Delete the row containing the user's email address
+  3. User will be denied access within 5 minutes
+
+The application caches the authorized user list for 5 minutes using `@st.cache_data(ttl=300)`, balancing performance with timely access control updates.
+
+## 6. Technical Implementation Details
+
+### 6.1 Key Functions
+
+**Authentication & Authorization:**
+- `get_google_drive_service()`: Initializes Drive API service with cached credentials (10-min TTL)
+- `get_google_sheets_service()`: Initializes Sheets API service with cached credentials (10-min TTL)
+- `get_authorized_users()`: Fetches and caches allowlist from Google Sheets (5-min TTL)
+- `check_user_authorization(email)`: Validates user email against allowlist
+
+**Google Drive Operations:**
+- `find_folder_by_path(service, root_id, path_components)`: Navigates folder hierarchy recursively
+- `find_file_in_folder(service, folder_id, filename)`: Searches for specific file in folder
+- `download_csv_content(service, file_id)`: Downloads CSV and converts to pandas DataFrame
+- `get_next_version_number(service, folder_id, base_filename)`: Determines next version number by scanning existing files
+- `upload_versioned_csv(service, folder_id, base_filename, dataframe)`: Creates and uploads new versioned CSV file
+
+**UI Components:**
+- Sidebar: Authentication, user info, and about section
+- Main area: File search interface, PDF links, editable data grid, save functionality
+
+### 6.2 Configuration Constants
+
+```python
+ACCELEROMETER_TYPES = ["ActiGraph", "GENEActiv", "Axivity", "ActiSleep", "Other"]
+CSV_FILENAME = "part4_nightsummary_sleep_cleaned.csv"
+PDF_FILENAME_1 = "visualisation_sleep.pdf"
+PDF_FILENAME_2 = "visualisation_data.pdf"
+```
+
+### 6.3 Error Handling
+
+The application includes comprehensive error handling for:
+- Failed API service initialization
+- Missing or inaccessible folders
+- File not found scenarios
+- Download/upload failures
+- Invalid credentials or permissions
+
+All errors display user-friendly messages in the Streamlit UI.
+
+### 6.4 Performance Optimizations
+
+- **API Service Caching**: 10-minute cache for Google API services
+- **Allowlist Caching**: 5-minute cache for authorized users list
+- **Efficient Queries**: Uses Google Drive API filters to minimize data transfer
+- **Session State**: Maintains user context without re-fetching data
+
+## 7. Future Enhancements
+
+Potential improvements for future versions:
+
+- Add support for multiple CSV files per participant
+- Implement bulk participant file operations
+- Add data validation rules before saving
+- Include version comparison/diff viewer
+- Add export functionality for multiple file formats
+- Implement role-based permissions (viewer vs. editor)
+- Add audit log export functionality
+- Support for custom accelerometer types
