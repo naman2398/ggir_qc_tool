@@ -55,8 +55,14 @@ ggir_qc/
 .pytest_cache/
 .coverage
 htmlcov/
+*.pyc
+__pycache__/
 
 # Sensitive files
 credentials.json
 token.json
 service-account-key.json
+
+# Legacy/Archive
+legacy/*.pyc
+legacy/__pycache__/
