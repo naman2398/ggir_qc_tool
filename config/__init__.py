@@ -1,9 +1,5 @@
-"""
-Configuration package
+"""Configuration Module"""
 
-Contains all application configuration and settings.
-"""
+from . import settings
 
-from .settings import config
-
-__all__ = ['config']
+__all__ = ["settings"]

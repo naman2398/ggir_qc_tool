@@ -1,73 +1,37 @@
-"""
-Microsoft Authentication Library (MSAL) integration
+"""Microsoft Authentication Library (MSAL) Integration"""
 
-Handles Azure AD authentication and token acquisition.
-"""
-
+import os
 import streamlit as st
 import msal
-import os
-from config.settings import config
+from config import settings
 
 
-def get_msal_app():
-    """
-    Initialize and return the MSAL Confidential Client Application.
-    Uses environment variables or Streamlit secrets for credentials.
-    
-    Returns:
-        ConfidentialClientApplication: MSAL app instance or None if credentials missing
-    """
-    try:
-        # Try to get from Streamlit secrets first, then fall back to env vars
-        if hasattr(st, 'secrets') and 'azure' in st.secrets:
-            client_id = st.secrets['azure'].get('client_id')
-            client_secret = st.secrets['azure'].get('client_secret')
-            tenant_id = st.secrets['azure'].get('tenant_id')
-        else:
-            client_id = os.getenv(config.ENV_CLIENT_ID)
-            client_secret = os.getenv(config.ENV_CLIENT_SECRET)
-            tenant_id = os.getenv(config.ENV_TENANT_ID)
-        
-        if not all([client_id, client_secret, tenant_id]):
-            st.error("❌ Missing Azure credentials. Please configure CLIENT_ID, CLIENT_SECRET, and TENANT_ID.")
-            return None
-        
-        authority = config.AUTHORITY_URL.format(tenant_id=tenant_id)
-        
-        app = msal.ConfidentialClientApplication(
-            client_id,
-            authority=authority,
-            client_credential=client_secret
-        )
-        
-        return app
-    except Exception as e:
-        st.error(f"Failed to initialize MSAL app: {str(e)}")
-        return None
+def _get_credentials():
+    """Get Azure credentials from environment variables or Streamlit secrets."""
+    client_id = os.getenv("AZURE_CLIENT_ID") or st.secrets.get("azure", {}).get("client_id")
+    client_secret = os.getenv("AZURE_CLIENT_SECRET") or st.secrets.get("azure", {}).get("client_secret")
+    tenant_id = os.getenv("AZURE_TENANT_ID") or st.secrets.get("azure", {}).get("tenant_id")
+    return client_id, client_secret, tenant_id
 
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600)
 def get_access_token():
-    """
-    Acquire an access token for Microsoft Graph API using client credentials flow.
+    """Acquire access token for Microsoft Graph API (cached 1 hour)."""
+    client_id, client_secret, tenant_id = _get_credentials()
     
-    Returns:
-        str: Access token or None if acquisition fails
-    """
-    msal_app = get_msal_app()
-    if not msal_app:
+    if not all([client_id, client_secret, tenant_id]):
+        st.error("Azure credentials not configured. Set AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID.")
         return None
     
     try:
-        result = msal_app.acquire_token_for_client(scopes=config.SCOPES)
+        authority = settings.AUTHORITY_URL.format(tenant_id=tenant_id)
+        app = msal.ConfidentialClientApplication(client_id, client_credential=client_secret, authority=authority)
+        result = app.acquire_token_for_client(scopes=settings.SCOPES)
         
         if "access_token" in result:
             return result["access_token"]
-        else:
-            error_desc = result.get("error_description", "Unknown error")
-            st.error(f"Failed to acquire access token: {error_desc}")
-            return None
+        st.error(f"Token error: {result.get('error_description', 'Unknown')}")
+        return None
     except Exception as e:
-        st.error(f"Error acquiring access token: {str(e)}")
+        st.error(f"Error acquiring token: {e}")
         return None

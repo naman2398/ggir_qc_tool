@@ -1,78 +1,37 @@
 """
 User Authorization Module
-
-Handles user access control using Excel-based allowlist.
 """
 
 import streamlit as st
 import pandas as pd
 import requests
 import io
-import os
-from config.settings import config
+from urllib.parse import quote
+from config import settings
+from src.api.file_operations import get_drive_id
 
 
-@st.cache_data(ttl=600)  # Cache for 10 minutes
-def get_authorized_users():
-    """
-    Fetch the list of authorized user emails from the App_Access_List.xlsx file.
-    
-    Returns:
-        list: Email addresses (lowercase for case-insensitive comparison)
-    """
+@st.cache_data(ttl=600)
+def get_authorized_users(_access_token):
+    """Fetch authorized emails from App_Access_List.xlsx (cached 10 min)."""
     try:
-        from .msal_auth import get_access_token
+        drive_id = get_drive_id(_access_token)
+        file_path = f"{settings.ROOT_FOLDER_PATH}/{settings.ACCESS_LIST_FILE}"
+        encoded_path = quote(file_path, safe="/")
         
-        access_token = get_access_token()
-        if not access_token:
-            return []
+        # Get file content
+        url = f"{settings.GRAPH_API_ENDPOINT}/drives/{drive_id}/root:/{encoded_path}:/content"
+        resp = requests.get(url, headers={"Authorization": f"Bearer {_access_token}"})
+        resp.raise_for_status()
         
-        # Get access list file path from config
-        if hasattr(st, 'secrets') and 'azure' in st.secrets:
-            access_list_path = st.secrets['azure'].get('access_list_file', 'App_Access_List.xlsx')
-        else:
-            access_list_path = os.getenv(config.ENV_ACCESS_LIST_FILE, 'App_Access_List.xlsx')
-        
-        # Search for the access list file in SharePoint/OneDrive
-        search_url = f"{config.GRAPH_API_ENDPOINT}/me/drive/root/search(q='{access_list_path}')"
-        headers = {'Authorization': f'Bearer {access_token}'}
-        
-        response = requests.get(search_url, headers=headers)
-        response.raise_for_status()
-        
-        files = response.json().get('value', [])
-        if not files:
-            st.warning("⚠️ Access list file not found. Using empty authorization list.")
-            return []
-        
-        # Download the first matching file
-        file_id = files[0]['id']
-        download_url = f"{config.GRAPH_API_ENDPOINT}/me/drive/items/{file_id}/content"
-        
-        download_response = requests.get(download_url, headers=headers)
-        download_response.raise_for_status()
-        
-        # Read Excel file
-        excel_data = pd.read_excel(io.BytesIO(download_response.content))
-        
-        # Assume emails are in the first column
-        emails = excel_data.iloc[:, 0].dropna().astype(str).str.strip().str.lower().tolist()
-        
-        return emails
+        # Read Excel and extract emails from first column
+        df = pd.read_excel(io.BytesIO(resp.content))
+        return df.iloc[:, 0].dropna().astype(str).str.strip().str.lower().tolist()
     except Exception as e:
-        st.error(f"Failed to fetch authorized users: {str(e)}")
+        st.error(f"Failed to fetch authorized users: {e}")
         return []
 
 
-def check_user_authorization(user_email):
-    """
-    Check if the provided user email is in the authorized users list.
-    
-    Args:
-        user_email (str): Email address to check
-        
-    Returns:
-        bool: True if authorized, False otherwise
-    """
-    authorized_users = get_authorized_users()
-    return user_email.lower() in authorized_users
+def check_user_authorization(access_token, user_email):
+    """Check if user email is authorized."""
+    return user_email.lower() in get_authorized_users(access_token)
