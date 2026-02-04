@@ -13,6 +13,11 @@ from src.auth.user_auth import check_password_authorization
 
 def render_sidebar():
     """Render auth sidebar. Returns True if authorized."""
+    
+    # If already authorized, don't show login UI
+    if st.session_state.get("authorized", False) and st.session_state.get("access_token"):
+        return True
+    
     with st.sidebar:
         st.header("🔐 Login")
         
@@ -29,9 +34,9 @@ def render_sidebar():
                     st.error("❌ Failed to authenticate with Azure")
                     st.stop()
                 
-                st.success("✅ Authorized")
                 st.session_state["authorized"] = True
                 st.session_state["access_token"] = access_token
+                st.rerun()  # Rerun to hide login UI
             else:
                 st.error("❌ Incorrect password")
                 st.session_state["authorized"] = False
@@ -65,8 +70,5 @@ def render_sidebar():
         # else:
         #     st.info("Please enter your email to access the application.")
         #     st.stop()
-        
-        st.markdown("---")
-        st.markdown("**GGIR QC Tool** v3.5\n\nStony Brook University")
     
     return st.session_state.get("authorized", False)
