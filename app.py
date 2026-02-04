@@ -8,8 +8,7 @@ from src.ui.file_viewer import render_file_viewer
 
 def main():
     st.set_page_config(page_title="GGIR QC Tool", page_icon="📊", layout="wide")
-    st.title("📊 GGIR QC Tool")
-    st.markdown("Secure Participant File Finder & Editor")
+    st.title("GGIR QC Tool")
     st.markdown("---")
     
     if not render_sidebar():

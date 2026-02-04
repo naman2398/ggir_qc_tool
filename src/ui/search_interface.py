@@ -7,17 +7,29 @@ from src.api.file_operations import build_folder_path, find_file
 
 def render_search_interface():
     """Render file search interface. Returns (success, search_performed)."""
-    st.header("🔍 Find Participant Files")
+    st.header("🔍 Find Participant Data")
     
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        selected_device = st.selectbox("Device Type", settings.SUPPORTED_DEVICES)
+        device_options = ["Select Device Type..."] + settings.SUPPORTED_DEVICES
+        selected_device = st.selectbox("Device Type", device_options)
+    
+    # Show default message if no device selected
+    if selected_device == "Select Device Type...":
+        st.info("👆 Please select a device type to begin searching for participant data.")
+        return False, False
     
     selected_phase = None
     if selected_device in settings.DEVICE_PHASE_MAPPING:
         with col1:
-            selected_phase = st.selectbox("Study Phase", settings.DEVICE_PHASE_MAPPING[selected_device])
+            phase_options = ["Select Study Phase..."] + settings.DEVICE_PHASE_MAPPING[selected_device]
+            selected_phase = st.selectbox("Study Phase", phase_options)
+            
+            # Show message if phase not selected for devices that require it
+            if selected_phase == "Select Study Phase...":
+                st.info("👆 Please select a study phase for this device type.")
+                return False, False
     
     with col2:
         participant_id = st.text_input("Participant ID", placeholder="e.g., PID123")
