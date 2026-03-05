@@ -27,7 +27,7 @@ DEVICE_PHASE_MAPPING = {
 TARGET_FILES = {
     "csv": "part4_nightsummary_sleep_cleaned.csv",
     "pdf_sleep": "visualisation_sleep.pdf",
-    "pdf_data": "file summary report/"
+    "pdf_data": "file summary reports/"
 }
 
 SUMMARY_REPORT_SUBFOLDER = TARGET_FILES["pdf_data"]
