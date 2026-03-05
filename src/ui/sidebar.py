@@ -2,7 +2,7 @@
 
 import streamlit as st
 from src.auth.msal_auth import get_access_token
-from src.auth.user_auth import check_password_authorization
+from src.auth.user_auth import check_email_password_authorization, extract_username_from_email
 
 # =============================================================================
 # EXCEL-BASED USER AUTHORIZATION (Commented out - requires SharePoint access)
@@ -24,10 +24,12 @@ def render_sidebar():
         # =============================================================================
         # SIMPLE PASSWORD AUTHENTICATION (Active)
         # =============================================================================
+        email_input = st.text_input("Email", placeholder="name@stonybrook.edu")
         password_input = st.text_input("Password", type="password", placeholder="Enter access password")
-        
-        if password_input:
-            if check_password_authorization(password_input):
+        login_button = st.button("Login", type="primary")
+
+        if login_button:
+            if check_email_password_authorization(email_input, password_input):
                 # Get Azure access token for SharePoint operations
                 access_token = get_access_token()
                 if not access_token:
@@ -35,14 +37,15 @@ def render_sidebar():
                     st.stop()
                 
                 st.session_state["authorized"] = True
+                st.session_state["user_email"] = email_input.strip().lower()
+                st.session_state["username"] = extract_username_from_email(email_input)
                 st.session_state["access_token"] = access_token
                 st.rerun()  # Rerun to hide login UI
             else:
-                st.error("❌ Incorrect password")
                 st.session_state["authorized"] = False
                 st.stop()
         else:
-            st.info("Please enter the access password.")
+            st.info("Please enter your email and access password.")
             st.stop()
         
         # =============================================================================

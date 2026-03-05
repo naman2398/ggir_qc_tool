@@ -64,6 +64,35 @@ def find_file(access_token, folder_path, filename):
         return None
 
 
+def list_pdfs_in_subfolder(access_token, folder_path, subfolder):
+    """List all PDFs in a subfolder under the participant results folder."""
+    try:
+        drive_id = get_drive_id(access_token)
+        full_path = f"{settings.ROOT_FOLDER_PATH}/{folder_path}{subfolder}".rstrip("/")
+        encoded_path = quote(full_path, safe="/")
+
+        url = f"{settings.GRAPH_API_ENDPOINT}/drives/{drive_id}/root:/{encoded_path}:/children"
+        resp = requests.get(url, headers={"Authorization": f"Bearer {access_token}"})
+        if resp.status_code != 200:
+            return []
+
+        pdf_files = []
+        for file_data in resp.json().get("value", []):
+            name = file_data.get("name", "")
+            if name.lower().endswith(".pdf"):
+                pdf_files.append({
+                    "id": file_data["id"],
+                    "name": name,
+                    "webUrl": file_data.get("webUrl", ""),
+                    "downloadUrl": file_data.get("@microsoft.graph.downloadUrl", ""),
+                })
+
+        return sorted(pdf_files, key=lambda item: item["name"].lower())
+    except Exception as e:
+        st.error(f"Error listing summary PDFs: {e}")
+        return []
+
+
 def download_csv(access_token, file_id):
     """Download CSV file and return as DataFrame."""
     try:
@@ -77,7 +106,13 @@ def download_csv(access_token, file_id):
         return None
 
 
-def get_next_version(access_token, folder_path, base_filename):
+def build_versioned_filename(base_filename, username, version):
+    """Build filename as {base}_{username}_v{version}.{ext}."""
+    name_part, ext = base_filename.rsplit(".", 1) if "." in base_filename else (base_filename, "csv")
+    return f"{name_part}_{username}_v{version}.{ext}"
+
+
+def get_next_version(access_token, folder_path, base_filename, username):
     """Get next version number by checking existing files."""
     try:
         drive_id = get_drive_id(access_token)
@@ -89,13 +124,14 @@ def get_next_version(access_token, folder_path, base_filename):
         resp.raise_for_status()
         
         name_part = base_filename.rsplit(".", 1)[0] if "." in base_filename else base_filename
+        prefix = f"{name_part}_{username}_v"
         max_version = 0
         
         for file in resp.json().get("value", []):
             fname = file["name"]
-            if f"{name_part}_v" in fname:
+            if fname.startswith(prefix):
                 try:
-                    version_str = fname.split(f"{name_part}_v")[1].split(".")[0]
+                    version_str = fname[len(prefix):].split(".")[0]
                     max_version = max(max_version, int(version_str))
                 except (ValueError, IndexError):
                     continue
@@ -105,14 +141,12 @@ def get_next_version(access_token, folder_path, base_filename):
         return 1
 
 
-def upload_csv(access_token, folder_path, base_filename, dataframe):
+def upload_csv(access_token, folder_path, base_filename, dataframe, username="unknown_user"):
     """Upload DataFrame as versioned CSV file."""
     try:
         drive_id = get_drive_id(access_token)
-        version = get_next_version(access_token, folder_path, base_filename)
-        
-        name_part, ext = base_filename.rsplit(".", 1) if "." in base_filename else (base_filename, "csv")
-        new_filename = f"{name_part}_v{version}.{ext}"
+        version = get_next_version(access_token, folder_path, base_filename, username)
+        new_filename = build_versioned_filename(base_filename, username, version)
         
         full_path = f"{settings.ROOT_FOLDER_PATH}/{folder_path}{new_filename}"
         encoded_path = quote(full_path, safe="/")

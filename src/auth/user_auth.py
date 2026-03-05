@@ -1,6 +1,7 @@
 """User Authorization Module"""
 
 import os
+import re
 import streamlit as st
 import pandas as pd
 import requests
@@ -27,6 +28,24 @@ def check_password_authorization(input_password):
         st.error("App password not configured. Set APP_PASSWORD environment variable.")
         return False
     return input_password == app_password
+
+
+def extract_username_from_email(user_email):
+    """Extract a filesystem-safe username from email local part."""
+    if not user_email or "@" not in user_email:
+        return "unknown_user"
+
+    local_part = user_email.strip().lower().split("@", 1)[0]
+    normalized = re.sub(r"[^a-z0-9]+", "_", local_part).strip("_")
+    return normalized or "unknown_user"
+
+
+def check_email_password_authorization(user_email, input_password):
+    """Validate email format and app password."""
+    if not user_email or "@" not in user_email:
+        st.error("Please enter a valid email address.")
+        return False
+    return check_password_authorization(input_password)
 
 
 # =============================================================================

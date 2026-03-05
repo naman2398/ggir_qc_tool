@@ -27,8 +27,10 @@ DEVICE_PHASE_MAPPING = {
 TARGET_FILES = {
     "csv": "part4_nightsummary_sleep_cleaned.csv",
     "pdf_sleep": "visualisation_sleep.pdf",
-    "pdf_data": "visualisation_data.pdf"
+    "pdf_data": "file summary report/"
 }
+
+SUMMARY_REPORT_SUBFOLDER = TARGET_FILES["pdf_data"]
 
 # Path Templates
 PATH_TEMPLATE_STANDARD = "{device}/{pid}/output_{pid}/results/"

@@ -1,7 +1,6 @@
 """File Viewer UI Component"""
 
 import streamlit as st
-from datetime import datetime
 from config import settings
 from src.api.file_operations import download_csv, upload_csv
 
@@ -17,8 +16,9 @@ def render_file_viewer():
     folder_path = st.session_state["folder_path"]
     csv_file = st.session_state.get("csv_file")
     pdf_file_sleep = st.session_state.get("pdf_file_sleep")
-    pdf_file_data = st.session_state.get("pdf_file_data")
+    pdf_file_data = st.session_state.get("pdf_file_data", [])
     access_token = st.session_state.get("access_token")
+    username = st.session_state.get("username", "unknown_user")
     
     st.header("📂 Participant Files")
     
@@ -39,9 +39,10 @@ def render_file_viewer():
     with col2:
         if pdf_file_data:
             st.markdown(f"**{settings.TARGET_FILES['pdf_data']}**")
-            st.markdown(f"[🔗 Open PDF]({pdf_file_data['webUrl']})")
+            for pdf in pdf_file_data:
+                st.markdown(f"- [🔗 {pdf['name']}]({pdf['webUrl']})")
         else:
-            st.warning(f"⚠️ {settings.TARGET_FILES['pdf_data']} not found")
+            st.warning(f"⚠️ No PDFs found under {settings.TARGET_FILES['pdf_data']}")
     
     st.markdown("---")
     
@@ -78,7 +79,7 @@ def render_file_viewer():
         
         if save_button and data_changed:
             with st.spinner("Saving new version..."):
-                new_file = upload_csv(access_token, folder_path, settings.TARGET_FILES["csv"], edited_df)
+                new_file = upload_csv(access_token, folder_path, settings.TARGET_FILES["csv"], edited_df, username)
                 
                 if new_file:
                     st.session_state["current_df"] = edited_df.copy()

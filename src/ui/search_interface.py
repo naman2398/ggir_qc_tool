@@ -2,7 +2,7 @@
 
 import streamlit as st
 from config import settings
-from src.api.file_operations import build_folder_path, find_file
+from src.api.file_operations import build_folder_path, find_file, list_pdfs_in_subfolder
 
 
 def render_search_interface():
@@ -48,7 +48,7 @@ def render_search_interface():
             
             csv_file = find_file(access_token, folder_path, settings.TARGET_FILES["csv"])
             pdf_file_sleep = find_file(access_token, folder_path, settings.TARGET_FILES["pdf_sleep"])
-            pdf_file_data = find_file(access_token, folder_path, settings.TARGET_FILES["pdf_data"])
+            pdf_file_data = list_pdfs_in_subfolder(access_token, folder_path, settings.TARGET_FILES["pdf_data"])
             
             if not any([csv_file, pdf_file_sleep, pdf_file_data]):
                 st.error(f"❌ No files found for {selected_device}/{participant_id}")

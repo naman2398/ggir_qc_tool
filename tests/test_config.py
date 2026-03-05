@@ -17,6 +17,11 @@ def test_target_files():
     assert "csv" in settings.TARGET_FILES
     assert "pdf_sleep" in settings.TARGET_FILES
     assert "pdf_data" in settings.TARGET_FILES
+    assert settings.TARGET_FILES["pdf_data"] == "file summary report/"
+
+
+def test_summary_report_subfolder_alias():
+    assert settings.SUMMARY_REPORT_SUBFOLDER == settings.TARGET_FILES["pdf_data"]
 
 
 def test_path_templates():
