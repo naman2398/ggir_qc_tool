@@ -5,6 +5,13 @@ from config import settings
 from src.api.file_operations import download_csv, upload_csv
 
 
+def _df_with_delete_col(df):
+    """Prepend a _to_delete bool column (all False) to a dataframe."""
+    result = df.copy()
+    result.insert(0, "_to_delete", False)
+    return result
+
+
 def render_file_viewer():
     """Render the file viewer and editor interface."""
     if not st.session_state.get("participant_id"):
@@ -57,35 +64,72 @@ def render_file_viewer():
             if df is not None:
                 st.info(f"📊 Loaded {len(df)} rows × {len(df.columns)} columns")
                 st.session_state["original_df"] = df.copy()
-                st.session_state["current_df"] = df.copy()
+                st.session_state["current_df"] = _df_with_delete_col(df)
             else:
                 st.error("❌ Failed to load CSV file.")
                 return
-        
+
         edited_df = st.data_editor(
             st.session_state["current_df"],
             use_container_width=True,
-            num_rows="dynamic",
-            key="data_editor"
+            num_rows="fixed",
+            column_config={
+                "_to_delete": st.column_config.CheckboxColumn(
+                    "🗑️ Delete",
+                    help="Check to mark this row for deletion. Marked rows are removed when you save.",
+                    default=False,
+                )
+            },
+            key="data_editor",
         )
-        
+
+        rows_to_delete = int(edited_df["_to_delete"].sum())
         data_changed = not edited_df.equals(st.session_state["current_df"])
-        
+
+        # Red-highlighted preview of rows marked for deletion
+        if rows_to_delete > 0:
+            st.warning(
+                f"🗑️ **{rows_to_delete} row(s) marked for deletion** — "
+                "shown in red below. They will be removed when you save."
+            )
+
+            def _highlight_deleted(row):
+                if row["_to_delete"]:
+                    return ["background-color: #ffcccc; color: #8b0000; text-decoration: line-through"] * len(row)
+                return [""] * len(row)
+
+            st.dataframe(
+                edited_df.style.apply(_highlight_deleted, axis=1),
+                use_container_width=True,
+                hide_index=True,
+            )
+
         col_save, col_status = st.columns([1, 2])
         with col_save:
             save_button = st.button("💾 Save Changes", type="primary", disabled=not data_changed)
         with col_status:
             st.warning("⚠️ Unsaved changes") if data_changed else st.success("✅ All changes saved")
-        
+
         if save_button and data_changed:
-            with st.spinner("Saving new version..."):
-                new_file = upload_csv(access_token, folder_path, settings.TARGET_FILES["csv"], edited_df, username)
-                
-                if new_file:
-                    st.session_state["current_df"] = edited_df.copy()
-                    st.success(f"✅ Saved as: **{new_file['name']}**")
-                    st.markdown(f"[🔗 View file]({new_file['webUrl']})")
-                else:
-                    st.error("❌ Failed to save. Please try again.")
+            save_df = (
+                edited_df[~edited_df["_to_delete"]]
+                .drop(columns=["_to_delete"])
+                .reset_index(drop=True)
+            )
+            if save_df.empty:
+                st.error("❌ Cannot save: all rows are marked for deletion.")
+            else:
+                with st.spinner("Saving new version..."):
+                    new_file = upload_csv(
+                        access_token, folder_path,
+                        settings.TARGET_FILES["csv"], save_df, username,
+                    )
+                    if new_file:
+                        st.session_state["original_df"] = save_df.copy()
+                        st.session_state["current_df"] = _df_with_delete_col(save_df)
+                        st.success(f"✅ Saved as: **{new_file['name']}** ({len(save_df)} rows)")
+                        st.markdown(f"[🔗 View file]({new_file['webUrl']})")
+                    else:
+                        st.error("❌ Failed to save. Please try again.")
     else:
         st.warning(f"⚠️ {settings.TARGET_FILES['csv']} not found")

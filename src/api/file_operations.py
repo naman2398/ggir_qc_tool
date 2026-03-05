@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import io
+from datetime import datetime
 from urllib.parse import quote
 from config import settings
 
@@ -107,9 +108,10 @@ def download_csv(access_token, file_id):
 
 
 def build_versioned_filename(base_filename, username, version):
-    """Build filename as {base}_{username}_v{version}.{ext}."""
+    """Build filename as {base}_{username}_v{version}_{YYYYMMDD_HHMM}.{ext}."""
     name_part, ext = base_filename.rsplit(".", 1) if "." in base_filename else (base_filename, "csv")
-    return f"{name_part}_{username}_v{version}.{ext}"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    return f"{name_part}_{username}_v{version}_{timestamp}.{ext}"
 
 
 def get_next_version(access_token, folder_path, base_filename, username):
