@@ -37,11 +37,13 @@ Location: App registration → API permissions → Add a permission → Microsof
 
 | Permission | Purpose |
 |------------|---------|
-| `Sites.Read.All` | Read files from SharePoint |
-| `Files.ReadWrite.All` | Save edited files back to SharePoint |
+| `Sites.Selected` | Allow this app to access only specific SharePoint sites (CUBIT site only, with read/write as granted at the site level) |
 
-After adding, please click **"Grant admin consent for [Organization]"**
+After adding the permission and granting **admin consent**, please restrict this app's access to only the CUBIT SharePoint site by granting it read/write permissions on:
 
+- `https://stonybrookmedicine.sharepoint.com/sites/CUBIT`
+
+(Use your standard process for assigning `Sites.Selected` permissions to specific sites, so the app cannot read or modify other SharePoint/OneDrive content.)
 ---
 
 ## SharePoint Site Accessed
