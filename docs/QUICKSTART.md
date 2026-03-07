@@ -9,16 +9,15 @@
 
 ### Find Files
 1. Select **Device Type** (Actical, ActiwatchL, Philips Health Band, FitBit, FDG Actical)
-2. Select **Phase** (only for Actical and Philips Health Band)
-3. Enter **Participant ID**
-4. Click **🔎 Search Files**
+2. Enter **Participant ID**
+3. Click **🔎 Search Files**
 
 ### View & Edit
 - **PDFs**: Click links to open reports (read-only)
 - **CSV**: Edit data directly in the table
 - **Save**: Click **💾 Save Changes** to create a new versioned file
 
-> **Note**: Each save creates a new version (e.g., `file_v1.csv`, `file_v2.csv`). Original files are never modified.
+> **Note**: Each save creates a new versioned file named like `{base}_{username}_{YYYYMMDD_HHMMSS}.{ext}`. Original files are never modified.
 
 ---
 
