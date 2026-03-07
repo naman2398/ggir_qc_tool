@@ -41,6 +41,50 @@ def build_folder_path(device, phase, participant_id):
     return settings.PATH_TEMPLATE_STANDARD.format(device=device, pid=participant_id)
 
 
+def build_participant_phase_folder_path(device, participant_id, phase):
+    """Build the post-migration participant-first path for a specific phase."""
+    return settings.PATH_TEMPLATE_PARTICIPANT_PHASED.format(
+        device=device, pid=participant_id, phase=phase
+    )
+
+
+def find_all_phase_files(access_token, device, participant_id):
+    """
+    For phased devices (Actical, Philips Health Band): find files across ALL phases
+    for a given participant. Only phases that have at least one file are included.
+
+    Returns a list of dicts, one per phase with data:
+        [
+            {
+                "phase":         str,
+                "folder_path":   str,   # relative path ending in results/
+                "csv_file":      dict | None,
+                "pdf_file_sleep": dict | None,
+                "pdf_file_data": list[dict],
+            },
+            ...
+        ]
+    """
+    phases = settings.DEVICE_PHASE_MAPPING.get(device, [])
+    results = []
+    for phase in phases:
+        folder_path = build_participant_phase_folder_path(device, participant_id, phase)
+        csv_file = find_file(access_token, folder_path, settings.TARGET_FILES["csv"])
+        pdf_sleep = find_file(access_token, folder_path, settings.TARGET_FILES["pdf_sleep"])
+        pdf_data = list_pdfs_in_subfolder(
+            access_token, folder_path, settings.TARGET_FILES["pdf_data"]
+        )
+        if any([csv_file, pdf_sleep, pdf_data]):
+            results.append({
+                "phase": phase,
+                "folder_path": folder_path,
+                "csv_file": csv_file,
+                "pdf_file_sleep": pdf_sleep,
+                "pdf_file_data": pdf_data,
+            })
+    return results
+
+
 def find_file(access_token, folder_path, filename):
     """Find a file in SharePoint folder. Returns file info dict or None."""
     try:

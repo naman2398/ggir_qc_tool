@@ -35,6 +35,7 @@ SUMMARY_REPORT_SUBFOLDER = TARGET_FILES["pdf_data"]
 # Path Templates
 PATH_TEMPLATE_STANDARD = "{device}/{pid}/output_{pid}/results/"
 PATH_TEMPLATE_PHASED = "{device}/{phase}/{pid}/output_{pid}/results/"
+PATH_TEMPLATE_PARTICIPANT_PHASED = "{device}/{pid}/output_{pid}_{phase}/results/"
 
 # SharePoint Configuration
 SHAREPOINT_HOSTNAME = "stonybrookmedicine.sharepoint.com"
