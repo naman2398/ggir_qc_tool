@@ -11,6 +11,9 @@ azure-identity>=1.14.0
 # Data manipulation
 pandas>=2.0.0
 
+# YAML parsing (participant registry)
+PyYAML>=6.0
+
 # Other dependencies
 requests>=2.31.0
 openpyxl>=3.1.0

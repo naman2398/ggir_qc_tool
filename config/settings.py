@@ -39,6 +39,9 @@ PATH_TEMPLATE_STANDARD = "{device}/{pid}/output_{pid}/results/"
 PATH_TEMPLATE_PHASED = "{device}/{phase}/{pid}/output_{pid}/results/"
 PATH_TEMPLATE_PARTICIPANT_PHASED = "{device}/{pid}/output_{pid}_{phase}/results/"
 
+# Participant Registry
+PARTICIPANTS_FILE = "config/participants.yaml"
+
 # SharePoint Configuration
 SHAREPOINT_HOSTNAME = "stonybrookmedicine.sharepoint.com"
 SHAREPOINT_SITE_PATH = "/sites/CUBIT"

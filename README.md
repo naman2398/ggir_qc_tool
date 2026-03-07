@@ -56,6 +56,49 @@ ggir_qc_tool/
 - [Changelog](docs/CHANGELOG.md) — Version history
 - [Design Document](docs/design_document.md) — Original specification
 
+## Adding a New Participant
+
+Before a participant can appear in the app's dropdown, their data folder must exist in **both** SharePoint roots under the correct device:
+
+```
+GGIR_final_outputs/{Device}/{PID}/
+GGIR_QC_outputs/{Device}/{PID}/
+```
+
+### Option A — In-app (for non-technical users)
+
+1. Open the app and select the correct **Device Type**.
+2. Click the **"➕ Add new participant to list"** expander below the search form.
+3. Type the Participant ID and click **Add to list**.
+   - The app checks SharePoint automatically. If the folder is missing in either root, an error is shown.
+   - On success, the ID is saved to `config/participants.yaml` and appears in the dropdown immediately.
+
+### Option B — Edit the YAML directly (for developers)
+
+Open `config/participants.yaml` and add the participant ID under the correct device:
+
+```yaml
+ActiwatchL:
+  - "PID123"
+  - "NEW_PID"   # ← add here
+```
+
+The app picks up the change on the next interaction (no restart required).
+Ensure the two SharePoint folders exist before doing this — the app will search them when the user clicks **Search Files**.
+
+### Option C — Refresh script (for developers, after bulk folder creation)
+
+After creating multiple participant folders in SharePoint (e.g., via `mirror_qc_folder_structure.py`), re-run the refresh script to update the registry automatically:
+
+```bash
+python refresh_participants.py           # merge new participants in
+python refresh_participants.py --dry-run # preview without writing
+python refresh_participants.py --device "Actical"  # one device only
+python refresh_participants.py --fresh   # overwrite YAML completely
+```
+
+The script only adds a PID if its folder is present in **both** roots. PIDs found in only one root are printed as warnings.
+
 ## Adding a New Device
 
 Edit `config/settings.py`:

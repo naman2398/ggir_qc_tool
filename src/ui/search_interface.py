@@ -1,14 +1,53 @@
 """Search Interface UI Component"""
 
+import pathlib
+
 import streamlit as st
+import yaml
+
 from config import settings
 from src.api.file_operations import (
     build_folder_path,
-    find_file,
+    check_participant_folder_exists,
     find_all_phase_files,
+    find_file,
     find_qc_csv,
     list_pdfs_in_subfolder,
 )
+
+_PARTICIPANTS_FILE = pathlib.Path(settings.PARTICIPANTS_FILE)
+_SELECT_PLACEHOLDER = "Select participant..."
+_CUSTOM_ID_OPTION = "➕ Enter custom ID..."
+
+
+def _load_participants() -> dict[str, list[str]]:
+    """Load config/participants.yaml. Returns {} if file not found."""
+    if not _PARTICIPANTS_FILE.exists():
+        return {}
+    with _PARTICIPANTS_FILE.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    return data
+
+
+def _save_participant(device: str, pid: str) -> None:
+    """Append pid to the device list in participants.yaml (no-op if already present)."""
+    data = _load_participants()
+    device_list = data.get(device, [])
+    if str(pid) not in [str(p) for p in device_list]:
+        device_list.append(str(pid))
+        data[device] = sorted(set(str(p) for p in device_list))
+    # Ensure all supported devices are present
+    for d in settings.SUPPORTED_DEVICES:
+        data.setdefault(d, [])
+    _PARTICIPANTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with _PARTICIPANTS_FILE.open("w", encoding="utf-8") as fh:
+        fh.write(
+            "# Participant registry — one list per device.\n"
+            "# Populated by refresh_participants.py.\n"
+            "# Edit freely — re-running the script merges without removing manual entries.\n"
+        )
+        yaml.dump(data, fh, default_flow_style=False, allow_unicode=True, sort_keys=True)
+
 
 _PHASED_KEYS_PREFIX = ("original_df_", "current_df_", "data_editor_version_", "last_saved_file_", "last_saved_url_", "qc_df_")
 
@@ -37,23 +76,50 @@ def render_search_interface():
     """Render file search interface. Returns (success, search_performed)."""
     st.header("🔍 Find Participant Data")
 
+    # ---------- YAML missing warning ----------
+    if not _PARTICIPANTS_FILE.exists():
+        st.warning(
+            "⚠️ Participant registry not found (`config/participants.yaml`). "
+            "Run `python refresh_participants.py` to generate it, or use "
+            "**➕ Enter custom ID...** below to search by typing a participant ID."
+        )
+
     col1, col2 = st.columns([1, 1])
 
     with col1:
         device_options = ["Select Device Type..."] + settings.SUPPORTED_DEVICES
         selected_device = st.selectbox("Device Type", device_options, on_change=_clear_file_state)
 
-    # Show default message if no device selected
     if selected_device == "Select Device Type...":
         st.info("👆 Please select a device type to begin searching for participant data.")
         return False, False
 
-    # Phased devices (Actical, Philips Health Band) no longer need a phase dropdown —
-    # the app fetches all phases automatically.
     is_phased_device = selected_device in settings.DEVICE_PHASE_MAPPING
 
+    # ---------- Participant id selectbox ----------
+    participants = _load_participants().get(selected_device, [])
+    pid_options = [_SELECT_PLACEHOLDER] + sorted(str(p) for p in participants) + [_CUSTOM_ID_OPTION]
+
     with col2:
-        participant_id = st.text_input("Participant ID", placeholder="e.g., PID123")
+        selected_pid = st.selectbox(
+            "Participant ID",
+            pid_options,
+            key=f"pid_select_{selected_device}",
+            on_change=_clear_file_state,
+        )
+
+    # Free-text fallback when custom option chosen
+    custom_pid = ""
+    if selected_pid == _CUSTOM_ID_OPTION:
+        custom_pid = st.text_input("Custom Participant ID", placeholder="e.g., PID123")
+
+    # Resolve the actual participant ID to use
+    if selected_pid == _SELECT_PLACEHOLDER:
+        participant_id = ""
+    elif selected_pid == _CUSTOM_ID_OPTION:
+        participant_id = custom_pid.strip()
+    else:
+        participant_id = selected_pid
 
     if is_phased_device:
         st.caption(
@@ -62,6 +128,54 @@ def render_search_interface():
 
     search_button = st.button("🔎 Search Files", type="primary")
 
+    # ---------- Add participant expander ----------
+    with st.expander("➕ Add new participant to list"):
+        st.caption(
+            "The participant folder must exist in **both** "
+            "`GGIR_final_outputs` and `GGIR_QC_outputs` under the selected device."
+        )
+        add_pid_input = st.text_input(
+            "Participant ID to add",
+            placeholder="e.g., PID999",
+            key="add_pid_input",
+        )
+        if st.button("Add to list", key="add_pid_button"):
+            if not add_pid_input.strip():
+                st.warning("⚠️ Please enter a participant ID.")
+            else:
+                add_pid = add_pid_input.strip()
+                access_token = st.session_state.get("access_token")
+                if not access_token:
+                    st.error("❌ Not authenticated. Please login first.")
+                else:
+                    existing = _load_participants().get(selected_device, [])
+                    if str(add_pid) in [str(p) for p in existing]:
+                        st.info(f"ℹ️ **{add_pid}** is already in the list for {selected_device}.")
+                    else:
+                        with st.spinner("Checking SharePoint folders…"):
+                            presence = check_participant_folder_exists(
+                                access_token, selected_device, add_pid
+                            )
+                        if not presence["in_final"] or not presence["in_qc"]:
+                            missing = []
+                            if not presence["in_final"]:
+                                missing.append("GGIR_final_outputs")
+                            if not presence["in_qc"]:
+                                missing.append("GGIR_QC_outputs")
+                            st.error(
+                                f"❌ No data folder found for **{add_pid}** under "
+                                f"**{selected_device}** in: {', '.join(missing)}. "
+                                "Ensure the folder exists in both roots before adding."
+                            )
+                        else:
+                            _save_participant(selected_device, add_pid)
+                            st.success(
+                                f"✅ **{add_pid}** added to the {selected_device} participant list. "
+                                "It will appear in the dropdown immediately."
+                            )
+                            st.rerun()
+
+    # ---------- Search ----------
     if search_button and participant_id:
         _clear_file_state()
         with st.spinner("Searching for files..."):
@@ -126,8 +240,12 @@ def render_search_interface():
             st.markdown("---")
             return True, True
 
-    elif search_button:
-        st.warning("⚠️ Please enter a Participant ID.")
+    elif search_button and selected_pid == _SELECT_PLACEHOLDER:
+        st.warning("⚠️ Please select or enter a Participant ID.")
+        return False, True
+
+    elif search_button and selected_pid == _CUSTOM_ID_OPTION and not custom_pid.strip():
+        st.warning("⚠️ Please enter a custom Participant ID in the text box.")
         return False, True
 
     return False, False

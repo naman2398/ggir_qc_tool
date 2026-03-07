@@ -101,6 +101,35 @@ def find_qc_csv(access_token, folder_path):
     )
 
 
+def check_participant_folder_exists(access_token, device, pid):
+    """Check whether a participant folder exists under both SharePoint roots.
+
+    Returns a dict:
+        {
+            "in_final": bool,   # folder found under GGIR_final_outputs/{device}/{pid}
+            "in_qc":    bool,   # folder found under GGIR_QC_outputs/{device}/{pid}
+        }
+    """
+    try:
+        drive_id = get_drive_id(access_token)
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        def _folder_exists(root: str) -> bool:
+            path = f"{root}/{device}/{pid}"
+            encoded = quote(path, safe="/")
+            url = f"{settings.GRAPH_API_ENDPOINT}/drives/{drive_id}/root:/{encoded}"
+            resp = requests.get(url, headers=headers)
+            return resp.status_code == 200
+
+        return {
+            "in_final": _folder_exists(settings.ROOT_FOLDER_PATH),
+            "in_qc": _folder_exists(settings.QC_ROOT_FOLDER_PATH),
+        }
+    except Exception as e:
+        st.error(f"Error checking participant folder: {e}")
+        return {"in_final": False, "in_qc": False}
+
+
 def find_file(access_token, folder_path, filename):
     """Find a file in SharePoint folder. Returns file info dict or None."""
     try:
