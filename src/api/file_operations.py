@@ -187,13 +187,19 @@ def get_next_version(access_token, folder_path, base_filename, username):
         return 1
 
 
-def upload_csv(access_token, folder_path, base_filename, dataframe, username="unknown_user"):
-    """Upload DataFrame as versioned CSV file."""
+def upload_csv(access_token, folder_path, base_filename, dataframe, username="unknown_user", root_path=None):
+    """Upload DataFrame as versioned CSV file.
+    
+    root_path: SharePoint root to save under. Defaults to QC_ROOT_FOLDER_PATH so that
+               edits are always written to GGIR_QC_outputs, not the source GGIR_final_outputs.
+    """
+    if root_path is None:
+        root_path = settings.QC_ROOT_FOLDER_PATH
     try:
         drive_id = get_drive_id(access_token)
         new_filename = build_versioned_filename(base_filename, username)
         
-        full_path = f"{settings.ROOT_FOLDER_PATH}/{folder_path}{new_filename}"
+        full_path = f"{root_path}/{folder_path}{new_filename}"
         encoded_path = quote(full_path, safe="/")
         
         csv_bytes = dataframe.to_csv(index=False).encode("utf-8")

@@ -42,6 +42,7 @@ SHAREPOINT_HOSTNAME = "stonybrookmedicine.sharepoint.com"
 SHAREPOINT_SITE_PATH = "/sites/CUBIT"
 DOCUMENT_LIBRARY = "CBT-I Documents"
 ROOT_FOLDER_PATH = "Actigraphy Analysis (Multi-Study Data Sets)/GGIR_final_outputs"
+QC_ROOT_FOLDER_PATH = "Actigraphy Analysis (Multi-Study Data Sets)/GGIR_QC_outputs"
 ACCESS_LIST_FILE = "App_Access_List.xlsx"
 
 # Microsoft Graph API
