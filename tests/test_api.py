@@ -21,17 +21,17 @@ def test_build_folder_path_with_special_chars():
 
 
 def test_build_versioned_filename_with_extension():
-    filename = build_versioned_filename("part4_nightsummary_sleep_cleaned.csv", "john_doe", 3)
-    # Format: {base}_{username}_v{version}_{YYYYMMDD_HHMM}.{ext}
+    filename = build_versioned_filename("part4_nightsummary_sleep_cleaned.csv", "john_doe")
+    # Format: {base}_{username}_{YYYYMMDD_HHMMSS}.{ext}
     assert re.match(
-        r"^part4_nightsummary_sleep_cleaned_john_doe_v3_\d{8}_\d{4}\.csv$",
+        r"^part4_nightsummary_sleep_cleaned_john_doe_\d{8}_\d{6}\.csv$",
         filename
     )
 
 
 def test_build_versioned_filename_without_extension_defaults_csv():
-    filename = build_versioned_filename("part4_nightsummary_sleep_cleaned", "john_doe", 1)
+    filename = build_versioned_filename("part4_nightsummary_sleep_cleaned", "john_doe")
     assert re.match(
-        r"^part4_nightsummary_sleep_cleaned_john_doe_v1_\d{8}_\d{4}\.csv$",
+        r"^part4_nightsummary_sleep_cleaned_john_doe_\d{8}_\d{6}\.csv$",
         filename
     )

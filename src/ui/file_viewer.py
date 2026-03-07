@@ -16,6 +16,8 @@ def render_file_viewer():
     """Render the file viewer and editor interface."""
     if not st.session_state.get("participant_id"):
         return
+
+    st.session_state.setdefault("data_editor_version", 0)
     
     participant_id = st.session_state["participant_id"]
     device = st.session_state["device"]
@@ -59,6 +61,10 @@ def render_file_viewer():
     if csv_file:
         st.markdown(f"**{settings.TARGET_FILES['csv']}**")
         
+        last_saved = st.session_state.get("last_saved_file")
+        if last_saved:
+            st.success(f"✅ Saved as: **{last_saved}**")
+
         if "original_df" not in st.session_state:
             df = download_csv(access_token, csv_file["id"])
             if df is not None:
@@ -80,7 +86,7 @@ def render_file_viewer():
                     default=False,
                 )
             },
-            key="data_editor",
+            key=f"data_editor_{st.session_state['data_editor_version']}",
         )
 
         rows_to_delete = int(edited_df["_to_delete"].sum())
@@ -127,7 +133,9 @@ def render_file_viewer():
                     if new_file:
                         st.session_state["original_df"] = save_df.copy()
                         st.session_state["current_df"] = _df_with_delete_col(save_df)
-                        st.success(f"✅ Saved as: **{new_file['name']}** ({len(save_df)} rows)")
+                        st.session_state["last_saved_file"] = new_file["name"]
+                        st.session_state["data_editor_version"] = st.session_state.get("data_editor_version", 0) + 1
+                        st.rerun()
                         st.markdown(f"[🔗 View file]({new_file['webUrl']})")
                     else:
                         st.error("❌ Failed to save. Please try again.")

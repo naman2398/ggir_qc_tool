@@ -5,6 +5,14 @@ from config import settings
 from src.api.file_operations import build_folder_path, find_file, list_pdfs_in_subfolder
 
 
+def _clear_file_state():
+    """Clear all participant/file session state so a new search starts fresh."""
+    for key in ["participant_id", "device", "phase", "folder_path",
+                "csv_file", "pdf_file_sleep", "pdf_file_data",
+                "original_df", "current_df", "data_editor_version", "last_saved_file"]:
+        st.session_state.pop(key, None)
+
+
 def render_search_interface():
     """Render file search interface. Returns (success, search_performed)."""
     st.header("🔍 Find Participant Data")
@@ -13,7 +21,7 @@ def render_search_interface():
     
     with col1:
         device_options = ["Select Device Type..."] + settings.SUPPORTED_DEVICES
-        selected_device = st.selectbox("Device Type", device_options)
+        selected_device = st.selectbox("Device Type", device_options, on_change=_clear_file_state)
     
     # Show default message if no device selected
     if selected_device == "Select Device Type...":
@@ -24,7 +32,7 @@ def render_search_interface():
     if selected_device in settings.DEVICE_PHASE_MAPPING:
         with col1:
             phase_options = ["Select Study Phase..."] + settings.DEVICE_PHASE_MAPPING[selected_device]
-            selected_phase = st.selectbox("Study Phase", phase_options)
+            selected_phase = st.selectbox("Study Phase", phase_options, on_change=_clear_file_state)
             
             # Show message if phase not selected for devices that require it
             if selected_phase == "Select Study Phase...":
@@ -37,6 +45,7 @@ def render_search_interface():
     search_button = st.button("🔎 Search Files", type="primary")
     
     if search_button and participant_id:
+        _clear_file_state()
         with st.spinner("Searching for files..."):
             access_token = st.session_state.get("access_token")
             if not access_token:

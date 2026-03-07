@@ -107,11 +107,11 @@ def download_csv(access_token, file_id):
         return None
 
 
-def build_versioned_filename(base_filename, username, version):
-    """Build filename as {base}_{username}_v{version}_{YYYYMMDD_HHMM}.{ext}."""
+def build_versioned_filename(base_filename, username):
+    """Build filename as {base}_{username}_{YYYYMMDD_HHMMSS}.{ext}."""
     name_part, ext = base_filename.rsplit(".", 1) if "." in base_filename else (base_filename, "csv")
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    return f"{name_part}_{username}_v{version}_{timestamp}.{ext}"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{name_part}_{username}_{timestamp}.{ext}"
 
 
 def get_next_version(access_token, folder_path, base_filename, username):
@@ -147,8 +147,7 @@ def upload_csv(access_token, folder_path, base_filename, dataframe, username="un
     """Upload DataFrame as versioned CSV file."""
     try:
         drive_id = get_drive_id(access_token)
-        version = get_next_version(access_token, folder_path, base_filename, username)
-        new_filename = build_versioned_filename(base_filename, username, version)
+        new_filename = build_versioned_filename(base_filename, username)
         
         full_path = f"{settings.ROOT_FOLDER_PATH}/{folder_path}{new_filename}"
         encoded_path = quote(full_path, safe="/")

@@ -65,7 +65,7 @@ def _stub_download_csv(_token, _file_id):
 
 def _stub_upload_csv(_token, _folder, base_filename, dataframe, username="unknown_user"):
     from src.api.file_operations import build_versioned_filename
-    name = build_versioned_filename(base_filename, username, 1)
+    name = build_versioned_filename(base_filename, username)
     st.toast(f"💾 Mock save: {name}")
     return {"id": "mock-saved-id", "name": name, "webUrl": "https://example.com/saved.csv"}
 
@@ -82,6 +82,7 @@ def mock_render_sidebar():
                 for key in ["authorized", "access_token", "user_email", "username",
                             "participant_id", "device", "phase", "folder_path",
                             "csv_file", "pdf_file_sleep", "pdf_file_data",
+                            "data_editor_version", "last_saved_file",
                             "original_df", "current_df"]:
                     st.session_state.pop(key, None)
                 st.rerun()
