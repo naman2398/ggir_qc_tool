@@ -2,7 +2,7 @@
 
 import re
 import pytest
-from src.api.file_operations import build_folder_path, build_versioned_filename
+from src.api.file_operations import build_folder_path, build_participant_phase_folder_path, build_versioned_filename
 
 
 def test_build_folder_path_standard():
@@ -35,3 +35,8 @@ def test_build_versioned_filename_without_extension_defaults_csv():
         r"^part4_nightsummary_sleep_cleaned_john_doe_\d{8}_\d{6}\.csv$",
         filename
     )
+
+
+def test_build_participant_phase_folder_path():
+    path = build_participant_phase_folder_path("Actical", "PID789", "Baseline")
+    assert path == "Actical/PID789/output_PID789_Baseline/results/"

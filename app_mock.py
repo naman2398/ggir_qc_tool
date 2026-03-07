@@ -70,6 +70,22 @@ def _stub_upload_csv(_token, _folder, base_filename, dataframe, username="unknow
     return {"id": "mock-saved-id", "name": name, "webUrl": "https://example.com/saved.csv"}
 
 
+def _stub_find_all_phase_files(_token, device, participant_id):
+    """Return a single mock phase entry for phased devices."""
+    return [{
+        "phase": "Baseline",
+        "folder_path": f"{device}/{participant_id}/output_{participant_id}_Baseline/results/",
+        "csv_file": MOCK_CSV_FILE,
+        "pdf_file_sleep": MOCK_PDF_SLEEP,
+        "pdf_file_data": MOCK_SUMMARY_PDFS,
+        "qc_csv_file": None,
+    }]
+
+
+def _stub_find_qc_csv(_token, _folder_path):
+    return None
+
+
 # ── Mock sidebar (mirrors exact session state keys of real sidebar) ────────────
 def mock_render_sidebar():
     """Same session state contract as src/ui/sidebar.py — no Azure/MSAL calls."""
@@ -126,9 +142,11 @@ def main():
     if not mock_render_sidebar():
         st.stop()
 
-    # Patch the four SharePoint calls used by the real UI components
+    # Patch the six SharePoint calls used by the real UI components
     with patch("src.ui.search_interface.find_file",           side_effect=_stub_find_file), \
          patch("src.ui.search_interface.list_pdfs_in_subfolder", side_effect=_stub_list_pdfs), \
+         patch("src.ui.search_interface.find_all_phase_files", side_effect=_stub_find_all_phase_files), \
+         patch("src.ui.search_interface.find_qc_csv",         side_effect=_stub_find_qc_csv), \
          patch("src.ui.file_viewer.download_csv",             side_effect=_stub_download_csv), \
          patch("src.ui.file_viewer.upload_csv",               side_effect=_stub_upload_csv):
 

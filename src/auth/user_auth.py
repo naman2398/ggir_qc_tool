@@ -1,14 +1,10 @@
 """User Authorization Module"""
 
+import hmac
 import os
 import re
 import streamlit as st
-import pandas as pd
-import requests
-import io
-from urllib.parse import quote
 from config import settings
-from src.api.file_operations import get_drive_id
 
 
 # =============================================================================
@@ -27,7 +23,7 @@ def check_password_authorization(input_password):
     if not app_password:
         st.error("App password not configured. Set APP_PASSWORD environment variable.")
         return False
-    return input_password == app_password
+    return hmac.compare_digest(input_password, app_password)
 
 
 def extract_username_from_email(user_email):
