@@ -56,11 +56,12 @@ def find_all_phase_files(access_token, device, participant_id):
     Returns a list of dicts, one per phase with data:
         [
             {
-                "phase":         str,
-                "folder_path":   str,   # relative path ending in results/
-                "csv_file":      dict | None,
+                "phase":          str,
+                "folder_path":    str,   # relative path ending in results/
+                "csv_file":       dict | None,
                 "pdf_file_sleep": dict | None,
-                "pdf_file_data": list[dict],
+                "pdf_file_data":  list[dict],
+                "qc_csv_file":    dict | None,  # results/QC/part4_nightsummary_sleep_full.csv
             },
             ...
         ]
@@ -74,15 +75,30 @@ def find_all_phase_files(access_token, device, participant_id):
         pdf_data = list_pdfs_in_subfolder(
             access_token, folder_path, settings.TARGET_FILES["pdf_data"]
         )
-        if any([csv_file, pdf_sleep, pdf_data]):
+        qc_csv_file = find_file(
+            access_token,
+            folder_path + settings.TARGET_FILES["csv_full_subfolder"],
+            settings.TARGET_FILES["csv_full"],
+        )
+        if any([csv_file, pdf_sleep, pdf_data, qc_csv_file]):
             results.append({
                 "phase": phase,
                 "folder_path": folder_path,
                 "csv_file": csv_file,
                 "pdf_file_sleep": pdf_sleep,
                 "pdf_file_data": pdf_data,
+                "qc_csv_file": qc_csv_file,
             })
     return results
+
+
+def find_qc_csv(access_token, folder_path):
+    """Find the read-only QC full summary CSV at results/QC/ for a given results folder_path."""
+    return find_file(
+        access_token,
+        folder_path + settings.TARGET_FILES["csv_full_subfolder"],
+        settings.TARGET_FILES["csv_full"],
+    )
 
 
 def find_file(access_token, folder_path, filename):

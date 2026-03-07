@@ -6,10 +6,11 @@ from src.api.file_operations import (
     build_folder_path,
     find_file,
     find_all_phase_files,
+    find_qc_csv,
     list_pdfs_in_subfolder,
 )
 
-_PHASED_KEYS_PREFIX = ("original_df_", "current_df_", "data_editor_version_", "last_saved_file_")
+_PHASED_KEYS_PREFIX = ("original_df_", "current_df_", "data_editor_version_", "last_saved_file_", "last_saved_url_", "qc_df_")
 
 
 def _clear_file_state():
@@ -19,7 +20,7 @@ def _clear_file_state():
         "participant_id", "device", "phase", "folder_path",
         "csv_file", "pdf_file_sleep", "pdf_file_data",
         "original_df", "current_df", "data_editor_version", "last_saved_file",
-        "phase_files",
+        "last_saved_url", "qc_csv_file", "phase_files",
     ]:
         st.session_state.pop(key, None)
 
@@ -104,8 +105,9 @@ def render_search_interface():
                 pdf_file_data = list_pdfs_in_subfolder(
                     access_token, folder_path, settings.TARGET_FILES["pdf_data"]
                 )
+                qc_csv_file = find_qc_csv(access_token, folder_path)
 
-                if not any([csv_file, pdf_file_sleep, pdf_file_data]):
+                if not any([csv_file, pdf_file_sleep, pdf_file_data, qc_csv_file]):
                     st.error(f"❌ No files found for {selected_device}/{participant_id}")
                     st.info("Please verify the device type and participant ID.")
                     return False, True
@@ -119,6 +121,7 @@ def render_search_interface():
                 st.session_state["csv_file"] = csv_file
                 st.session_state["pdf_file_sleep"] = pdf_file_sleep
                 st.session_state["pdf_file_data"] = pdf_file_data
+                st.session_state["qc_csv_file"] = qc_csv_file
 
             st.markdown("---")
             return True, True

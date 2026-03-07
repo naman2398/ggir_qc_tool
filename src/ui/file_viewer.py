@@ -12,6 +12,33 @@ def _df_with_delete_col(df):
     return result
 
 
+def _render_readonly_csv(qc_csv_file, access_token, state_suffix):
+    """Render a read-only view of the full QC summary CSV."""
+    key_qc_df = f"qc_df{state_suffix}"
+
+    if not qc_csv_file:
+        st.info(f"ℹ️ {settings.TARGET_FILES['csv_full']} not found at results/QC/")
+        return
+
+    col_title, col_link = st.columns([3, 1])
+    with col_title:
+        st.markdown(f"**{settings.TARGET_FILES['csv_full']}**")
+    with col_link:
+        if qc_csv_file.get("webUrl"):
+            st.markdown(f"[🔗 Open in SharePoint]({qc_csv_file['webUrl']})")
+
+    if key_qc_df not in st.session_state:
+        df = download_csv(access_token, qc_csv_file["id"])
+        if df is None:
+            st.error("❌ Failed to load full summary file.")
+            return
+        st.session_state[key_qc_df] = df
+
+    df = st.session_state[key_qc_df]
+    st.caption(f"📊 {len(df)} rows × {len(df.columns)} columns")
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+
 # =============================================================================
 # Single-phase viewer (non-phased devices: ActiwatchL, FitBit, FDG Actical)
 # =============================================================================
@@ -45,6 +72,16 @@ def _render_single_phase_viewer(
                 st.markdown(f"- [🔗 {pdf['name']}]({pdf['webUrl']})")
         else:
             st.warning(f"⚠️ No PDFs found under {settings.TARGET_FILES['pdf_data']}")
+
+    st.markdown("---")
+
+    # Read-only QC full CSV
+    st.subheader("📋 Full Summary Data (Read-Only)")
+    _render_readonly_csv(
+        qc_csv_file=st.session_state.get("qc_csv_file"),
+        access_token=access_token,
+        state_suffix="",
+    )
 
     st.markdown("---")
 
@@ -96,6 +133,27 @@ def _render_multi_phase_viewer(phase_files, access_token, username, participant_
                         st.markdown(f"- [🔗 {pdf['name']} — {phase}]({pdf['webUrl']})")
                 else:
                     st.warning(f"⚠️ No PDFs found under {settings.TARGET_FILES['pdf_data']}")
+
+    st.markdown("---")
+
+    # ------------------------------------------------------------------
+    # Read-only QC full CSVs: one tab per phase
+    # ------------------------------------------------------------------
+    st.subheader("📋 Full Summary Data (Read-Only)")
+
+    qc_phases = [pf for pf in phase_files if pf.get("qc_csv_file")]
+    if not qc_phases:
+        st.info(f"ℹ️ {settings.TARGET_FILES['csv_full']} not found in any phase.")
+    else:
+        qc_tab_labels = [pf["phase"] for pf in qc_phases]
+        qc_tabs = st.tabs(qc_tab_labels)
+        for tab, pf in zip(qc_tabs, qc_phases):
+            with tab:
+                _render_readonly_csv(
+                    qc_csv_file=pf["qc_csv_file"],
+                    access_token=access_token,
+                    state_suffix=f"_qc_{pf['phase']}",
+                )
 
     st.markdown("---")
 
