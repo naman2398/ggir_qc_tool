@@ -138,16 +138,29 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
     key_current = f"current_df{state_suffix}"
     key_version = f"data_editor_version{state_suffix}"
     key_last_saved = f"last_saved_file{state_suffix}"
+    key_last_saved_url = f"last_saved_url{state_suffix}"
 
     if not csv_file:
         st.warning(f"⚠️ {settings.TARGET_FILES['csv']} not found")
         return
 
-    st.markdown(f"**{settings.TARGET_FILES['csv']}**")
+    # Original file link
+    col_title, col_link = st.columns([3, 1])
+    with col_title:
+        st.markdown(f"**{settings.TARGET_FILES['csv']}**")
+    with col_link:
+        if csv_file.get("webUrl"):
+            st.markdown(f"[🔗 Open original in SharePoint]({csv_file['webUrl']})")
 
     last_saved = st.session_state.get(key_last_saved)
+    last_saved_url = st.session_state.get(key_last_saved_url)
     if last_saved:
-        st.success(f"✅ Saved as: **{last_saved}**")
+        scol1, scol2 = st.columns([3, 1])
+        with scol1:
+            st.success(f"✅ Last saved as: **{last_saved}**")
+        with scol2:
+            if last_saved_url:
+                st.markdown(f"[🔗 Open saved file in SharePoint]({last_saved_url})")
 
     if key_original not in st.session_state:
         df = download_csv(access_token, csv_file["id"])
@@ -224,9 +237,9 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                     st.session_state[key_original] = save_df.copy()
                     st.session_state[key_current] = _df_with_delete_col(save_df)
                     st.session_state[key_last_saved] = new_file["name"]
+                    st.session_state[key_last_saved_url] = new_file.get("webUrl", "")
                     st.session_state[key_version] = version + 1
                     st.rerun()
-                    st.markdown(f"[🔗 View file]({new_file['webUrl']})")
                 else:
                     st.error("❌ Failed to save. Please try again.")
 
