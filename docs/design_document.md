@@ -95,7 +95,7 @@ The project adheres to a strict philosophy of **Simplicity, Minimalism, and Func
 ### 4.2 Security Requirements
 
 - **Secret Management:** CLIENT_ID, CLIENT_SECRET, TENANT_ID stored in Azure App Service Configuration.
-- **Graph Permissions:** Files.ReadWrite.All.
+- **Graph Permissions:** Use least-privilege scopes. Prefer SharePoint `Sites.Selected` with site-level grants limited to the specific research SharePoint site(s) that host the GGIR folders; avoid tenant-wide scopes such as `Files.ReadWrite.All`.
 
 ## 5\. Deployment and Maintenance
 
