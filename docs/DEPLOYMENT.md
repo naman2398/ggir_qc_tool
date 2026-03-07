@@ -80,9 +80,9 @@ az webapp create --resource-group ggir-qc-rg --plan ggir-qc-plan --name ggir-qc-
 
 # Configure secrets
 az webapp config appsettings set --resource-group ggir-qc-rg --name ggir-qc-tool --settings \
-  CLIENT_ID="your-client-id" \
-  CLIENT_SECRET="your-client-secret" \
-  TENANT_ID="your-tenant-id"
+  AZURE_CLIENT_ID="your-client-id" \
+  AZURE_CLIENT_SECRET="your-client-secret" \
+  AZURE_TENANT_ID="your-tenant-id"
 
 # Deploy
 az webapp deployment source config --name ggir-qc-tool --resource-group ggir-qc-rg \
