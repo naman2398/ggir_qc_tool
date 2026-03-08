@@ -8,13 +8,15 @@ DEVICE_ACTIWATCH = "ActiwatchL"
 DEVICE_PHILIPS = "Philips Health Band"
 DEVICE_FITBIT = "FitBit"
 DEVICE_FDG_ACTICAL = "FDG Actical"
+DEVICE_CENTREPOINT_LEAP = "CentrePointLeap"
 
 SUPPORTED_DEVICES = [
     DEVICE_ACTICAL,
     DEVICE_ACTIWATCH,
     DEVICE_PHILIPS,
     DEVICE_FITBIT,
-    DEVICE_FDG_ACTICAL
+    DEVICE_FDG_ACTICAL,
+    DEVICE_CENTREPOINT_LEAP,
 ]
 
 # Phase Configuration (only devices listed here show phase dropdown)

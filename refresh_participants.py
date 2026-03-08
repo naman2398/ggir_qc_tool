@@ -72,6 +72,7 @@ SUPPORTED_DEVICES = [
     "Philips Health Band",
     "FitBit",
     "FDG Actical",
+    "CentrePointLeap",
 ]
 
 PARTICIPANTS_FILE = Path(__file__).parent / "config" / "participants.yaml"
