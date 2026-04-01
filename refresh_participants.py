@@ -75,6 +75,11 @@ SUPPORTED_DEVICES = [
     "CentrePointLeap",
 ]
 
+DEVICE_SHAREPOINT_FOLDER = {
+    "FDG Actical": "FDG-Actical",
+    "FitBit": "Fitbit",
+}
+
 PARTICIPANTS_FILE = Path(__file__).parent / "config" / "participants.yaml"
 
 # ---------------------------------------------------------------------------
@@ -230,8 +235,9 @@ def refresh(
     summary: list[tuple[str, int, int, int, int]] = []
 
     for device in devices:
-        final_pids = list_child_folders(token, drive_id, f"{FINAL_ROOT}/{device}")
-        qc_pids = list_child_folders(token, drive_id, f"{QC_ROOT}/{device}")
+        device_folder = DEVICE_SHAREPOINT_FOLDER.get(device, device)
+        final_pids = list_child_folders(token, drive_id, f"{FINAL_ROOT}/{device_folder}")
+        qc_pids = list_child_folders(token, drive_id, f"{QC_ROOT}/{device_folder}")
 
         both = final_pids & qc_pids
         only_final = final_pids - qc_pids

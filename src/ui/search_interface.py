@@ -98,6 +98,13 @@ def render_search_interface():
 
     # ---------- Participant id selectbox ----------
     participants = _load_participants().get(selected_device, [])
+    if not participants:
+        st.warning(
+            f"⚠️ No participants found for **{selected_device}** in `config/participants.yaml`. "
+            "Use **➕ Add new participant to list** below, or run "
+            f"`python refresh_participants.py --device \"{selected_device}\"` "
+            "after setting Azure environment variables."
+        )
     pid_options = [_SELECT_PLACEHOLDER] + sorted(str(p) for p in participants) + [_CUSTOM_ID_OPTION]
 
     with col2:

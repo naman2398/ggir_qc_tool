@@ -11,6 +11,11 @@ from urllib.parse import quote
 from config import settings
 
 
+def _device_folder_name(device):
+    """Return the SharePoint folder name for a display device label."""
+    return settings.DEVICE_SHAREPOINT_FOLDER.get(device, device)
+
+
 @st.cache_data(ttl=3600)
 def get_drive_id(_access_token):
     """Get SharePoint document library drive ID (cached 1 hour)."""
@@ -36,15 +41,19 @@ def get_drive_id(_access_token):
 
 def build_folder_path(device, phase, participant_id):
     """Build folder path from device, phase, and participant ID."""
+    device_folder = _device_folder_name(device)
     if phase:
-        return settings.PATH_TEMPLATE_PHASED.format(device=device, phase=phase, pid=participant_id)
-    return settings.PATH_TEMPLATE_STANDARD.format(device=device, pid=participant_id)
+        return settings.PATH_TEMPLATE_PHASED.format(
+            device=device_folder, phase=phase, pid=participant_id
+        )
+    return settings.PATH_TEMPLATE_STANDARD.format(device=device_folder, pid=participant_id)
 
 
 def build_participant_phase_folder_path(device, participant_id, phase):
     """Build the post-migration participant-first path for a specific phase."""
+    device_folder = _device_folder_name(device)
     return settings.PATH_TEMPLATE_PARTICIPANT_PHASED.format(
-        device=device, pid=participant_id, phase=phase
+        device=device_folder, pid=participant_id, phase=phase
     )
 
 
@@ -93,11 +102,27 @@ def find_all_phase_files(access_token, device, participant_id):
 
 
 def find_qc_csv(access_token, folder_path):
-    """Find the read-only QC full summary CSV at results/QC/ for a given results folder_path."""
+    """Find read-only QC full summary CSV, preferring GGIR_QC_outputs.
+
+    Some studies store this artifact only in the QC root. We first try QC,
+    then fall back to the final root to maintain backward compatibility.
+    """
+    qc_folder = folder_path + settings.TARGET_FILES["csv_full_subfolder"]
+
+    qc_file = find_file(
+        access_token,
+        qc_folder,
+        settings.TARGET_FILES["csv_full"],
+        root_path=settings.QC_ROOT_FOLDER_PATH,
+    )
+    if qc_file:
+        return qc_file
+
     return find_file(
         access_token,
-        folder_path + settings.TARGET_FILES["csv_full_subfolder"],
+        qc_folder,
         settings.TARGET_FILES["csv_full"],
+        root_path=settings.ROOT_FOLDER_PATH,
     )
 
 
@@ -115,7 +140,8 @@ def check_participant_folder_exists(access_token, device, pid):
         headers = {"Authorization": f"Bearer {access_token}"}
 
         def _folder_exists(root: str) -> bool:
-            path = f"{root}/{device}/{pid}"
+            device_folder = _device_folder_name(device)
+            path = f"{root}/{device_folder}/{pid}"
             encoded = quote(path, safe="/")
             url = f"{settings.GRAPH_API_ENDPOINT}/drives/{drive_id}/root:/{encoded}"
             resp = requests.get(url, headers=headers)
@@ -130,11 +156,14 @@ def check_participant_folder_exists(access_token, device, pid):
         return {"in_final": False, "in_qc": False}
 
 
-def find_file(access_token, folder_path, filename):
+def find_file(access_token, folder_path, filename, root_path=None):
     """Find a file in SharePoint folder. Returns file info dict or None."""
     try:
         drive_id = get_drive_id(access_token)
-        full_path = f"{settings.ROOT_FOLDER_PATH}/{folder_path}{filename}"
+        if root_path is None:
+            root_path = settings.ROOT_FOLDER_PATH
+
+        full_path = f"{root_path}/{folder_path}{filename}"
         encoded_path = quote(full_path, safe="/")
         
         url = f"{settings.GRAPH_API_ENDPOINT}/drives/{drive_id}/root:/{encoded_path}"

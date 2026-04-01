@@ -19,6 +19,12 @@ SUPPORTED_DEVICES = [
     DEVICE_CENTREPOINT_LEAP,
 ]
 
+# Display-name to SharePoint-folder mapping for devices whose folder names differ.
+DEVICE_SHAREPOINT_FOLDER = {
+    DEVICE_FDG_ACTICAL: "FDG-Actical",
+    DEVICE_FITBIT: "Fitbit",
+}
+
 # Phase Configuration (only devices listed here show phase dropdown)
 DEVICE_PHASE_MAPPING = {
     DEVICE_ACTICAL: ["Baseline", "Overnight", "Pre-Overnight", "Post-Overnight"],
