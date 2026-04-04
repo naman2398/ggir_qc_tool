@@ -69,3 +69,21 @@ def test_missing_summary_mask_ignores_column_order():
 
     mask = _missing_summary_mask(summary_df, edit_df)
     assert mask.tolist() == [False, False]
+
+
+def test_missing_summary_mask_ignores_unnamed_index_artifact_column():
+    summary_df = pd.DataFrame(
+        [
+            {"A": 1, "B": "x"},
+            {"A": 2, "B": "y"},
+        ]
+    )
+    edit_df = pd.DataFrame(
+        [
+            {"Unnamed: 0": 0, "A": 1, "B": "x"},
+            {"Unnamed: 0": 1, "A": 2, "B": "y"},
+        ]
+    )
+
+    mask = _missing_summary_mask(summary_df, edit_df)
+    assert mask.tolist() == [False, False]

@@ -40,7 +40,10 @@ def _df_with_delete_col(df, added_mask=None):
 
 def _df_without_helper_cols(df):
     """Return dataframe copy without internal UI helper columns."""
-    return df.drop(columns=_HELPER_COLUMNS, errors="ignore").copy()
+    cleaned = df.drop(columns=_HELPER_COLUMNS, errors="ignore").copy()
+    # Ignore CSV index artifact columns that may appear in one file but not the other.
+    keep_cols = [col for col in cleaned.columns if not str(col).startswith("Unnamed:")]
+    return cleaned.loc[:, keep_cols]
 
 
 def _normalize_for_compare(df):
@@ -83,12 +86,26 @@ def _missing_summary_mask(summary_df, edit_df):
     if summary_norm.empty:
         return pd.Series([], dtype="bool")
 
-    if list(summary_norm.columns) != list(edit_norm.columns):
+    if set(summary_norm.columns) != set(edit_norm.columns):
         return pd.Series([True] * len(summary_norm), index=summary_norm.index)
 
-    summary_sigs = _row_signatures(summary_norm)
-    edit_sig_set = set(_row_signatures(edit_norm).tolist())
-    return ~summary_sigs.isin(edit_sig_set)
+    ordered_cols = sorted(summary_norm.columns)
+    summary_cmp = summary_norm.loc[:, ordered_cols].map(_normalize_cell)
+    edit_cmp = edit_norm.loc[:, ordered_cols].map(_normalize_cell)
+
+    # Multiset-aware diff: preserves duplicate counts when computing missing rows.
+    summary_ranked = summary_cmp.copy()
+    summary_ranked["_dup_rank"] = summary_cmp.groupby(ordered_cols, dropna=False).cumcount()
+    edit_ranked = edit_cmp.copy()
+    edit_ranked["_dup_rank"] = edit_cmp.groupby(ordered_cols, dropna=False).cumcount()
+
+    merged = summary_ranked.merge(
+        edit_ranked,
+        on=ordered_cols + ["_dup_rank"],
+        how="left",
+        indicator=True,
+    )
+    return merged["_merge"].eq("left_only")
 
 
 def _ensure_edit_state_loaded(csv_file, access_token, state_suffix):
