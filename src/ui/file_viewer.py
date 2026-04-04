@@ -1,5 +1,8 @@
 """File Viewer UI Component"""
 
+import json
+
+import pandas as pd
 import streamlit as st
 from config import settings
 from src.api.file_operations import (
@@ -22,16 +25,104 @@ from src.ui.activity_logging import (
 )
 
 
-def _df_with_delete_col(df):
-    """Prepend a _to_delete bool column (all False) to a dataframe."""
-    result = df.copy()
+_HELPER_COLUMNS = ["_to_delete", "_added"]
+
+
+def _df_with_delete_col(df, added_mask=None):
+    """Prepend helper columns used by editor state and row status previews."""
+    result = df.drop(columns=_HELPER_COLUMNS, errors="ignore").copy()
     result.insert(0, "_to_delete", False)
+    result.insert(1, "_added", False)
+    if added_mask is not None:
+        result["_added"] = list(added_mask)
     return result
 
 
-def _render_readonly_csv(qc_csv_file, access_token, state_suffix):
+def _df_without_helper_cols(df):
+    """Return dataframe copy without internal UI helper columns."""
+    return df.drop(columns=_HELPER_COLUMNS, errors="ignore").copy()
+
+
+def _normalize_for_compare(df):
+    """Normalize dataframe for strict row-wise comparisons across summary/edit views."""
+    normalized = _df_without_helper_cols(df).copy()
+    normalized.columns = [str(col) for col in normalized.columns]
+    normalized = normalized.reindex(sorted(normalized.columns), axis=1)
+    return normalized.reset_index(drop=True)
+
+
+def _normalize_cell(value):
+    """Convert cell value into a stable compare token (NaN-safe, dtype-agnostic)."""
+    if pd.isna(value):
+        return "__GGIR_NULL__"
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    return value
+
+
+def _row_signatures(df):
+    """Create stable per-row signatures used for exact row presence checks."""
+    if df.empty:
+        return pd.Series([], dtype="object")
+
+    prepared = _normalize_for_compare(df).map(_normalize_cell)
+    cols = list(prepared.columns)
+
+    def _to_sig(row):
+        payload = {col: row[col] for col in cols}
+        return json.dumps(payload, sort_keys=True, default=str, ensure_ascii=True)
+
+    return prepared.apply(_to_sig, axis=1)
+
+
+def _missing_summary_mask(summary_df, edit_df):
+    """Return boolean mask for summary rows that are missing from edit rows."""
+    summary_norm = _normalize_for_compare(summary_df)
+    edit_norm = _normalize_for_compare(edit_df)
+
+    if summary_norm.empty:
+        return pd.Series([], dtype="bool")
+
+    if list(summary_norm.columns) != list(edit_norm.columns):
+        return pd.Series([True] * len(summary_norm), index=summary_norm.index)
+
+    summary_sigs = _row_signatures(summary_norm)
+    edit_sig_set = set(_row_signatures(edit_norm).tolist())
+    return ~summary_sigs.isin(edit_sig_set)
+
+
+def _ensure_edit_state_loaded(csv_file, access_token, state_suffix):
+    """Initialize edit dataframe state if absent so summary compare is available immediately."""
+    key_original = f"original_df{state_suffix}"
+    key_current = f"current_df{state_suffix}"
+    if key_original in st.session_state and key_current in st.session_state:
+        return
+
+    if not csv_file:
+        return
+
+    df = download_csv(access_token, csv_file["id"])
+    if df is None:
+        return
+    st.session_state[key_original] = df.copy()
+    st.session_state[key_current] = _df_with_delete_col(df)
+
+
+def _summary_to_edit_suffix(state_suffix):
+    """Map read-only summary key suffix to edit-state suffix for the same phase."""
+    if state_suffix.startswith("_qc_"):
+        return f"_{state_suffix[4:]}"
+    return state_suffix
+
+
+def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
     """Render a read-only view of the full QC summary CSV."""
     key_qc_df = f"qc_df{state_suffix}"
+    edit_state_suffix = _summary_to_edit_suffix(state_suffix)
+    key_current = f"current_df{edit_state_suffix}"
+    key_version = f"data_editor_version{edit_state_suffix}"
+    key_editor_status = f"editor_status{edit_state_suffix}"
+    key_force_dirty = f"force_dirty{edit_state_suffix}"
 
     if not qc_csv_file:
         st.info(f"ℹ️ {settings.TARGET_FILES['csv_full']} not found at results/QC/")
@@ -52,8 +143,105 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix):
         st.session_state[key_qc_df] = df
 
     df = st.session_state[key_qc_df]
-    st.caption(f"📊 {len(df)} rows × {len(df.columns)} columns")
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    current_df = st.session_state.get(key_current)
+
+    if current_df is not None:
+        missing_mask = _missing_summary_mask(df, current_df)
+    else:
+        missing_mask = pd.Series([False] * len(df), index=df.index)
+
+    missing_df = df[missing_mask].reset_index(drop=True)
+    st.caption(
+        f"📊 {len(df)} rows × {len(df.columns)} columns | "
+        f"Missing from edit: {len(missing_df)}"
+    )
+
+    def _highlight_missing(row):
+        if bool(missing_mask.loc[row.name]):
+            return ["background-color: #fff9c4"] * len(row)
+        return [""] * len(row)
+
+    st.dataframe(
+        df.style.apply(_highlight_missing, axis=1),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    if current_df is None:
+        st.info("Load edit data to enable missing-row copy actions.")
+        return
+
+    if missing_df.empty:
+        st.success("All summary records are already present in Edit Data Files.")
+        return
+
+    st.caption("Select missing rows to copy into Edit Data Files")
+    selector_df = missing_df.copy()
+    selector_df.insert(0, "_copy", False)
+    selected_rows = st.data_editor(
+        selector_df,
+        use_container_width=True,
+        num_rows="fixed",
+        hide_index=True,
+        column_config={
+            "_copy": st.column_config.CheckboxColumn(
+                "Copy",
+                help="Select rows to copy into Edit Data Files.",
+                default=False,
+            ),
+        },
+        disabled=list(selector_df.columns[1:]),
+        key=f"missing_copy_editor{edit_state_suffix}",
+    )
+    selected_count = int(selected_rows["_copy"].sum())
+    st.caption(f"Selected: {selected_count} of {len(missing_df)} missing row(s)")
+
+    copy_clicked = st.button(
+        "Copy selected to Edit Data Files",
+        key=f"copy_missing_rows{edit_state_suffix}",
+        disabled=selected_count == 0,
+    )
+
+    if copy_clicked:
+        selected_df = selected_rows[selected_rows["_copy"]].drop(columns=["_copy"]).reset_index(drop=True)
+        latest_current_df = st.session_state.get(key_current)
+        latest_missing_mask = _missing_summary_mask(df, latest_current_df)
+        latest_missing_df = df[latest_missing_mask].reset_index(drop=True)
+        latest_missing_signatures = set(_row_signatures(latest_missing_df).tolist())
+
+        selected_signatures = _row_signatures(selected_df)
+        rows_to_copy = selected_df[selected_signatures.isin(latest_missing_signatures)].reset_index(drop=True)
+
+        if rows_to_copy.empty:
+            st.session_state[key_editor_status] = {
+                "level": "warning",
+                "text": "Selected rows are already present in Edit Data Files.",
+            }
+            st.rerun()
+
+        latest_edit_clean = _df_without_helper_cols(latest_current_df)
+        updated_edit = pd.concat([latest_edit_clean, rows_to_copy], ignore_index=True)
+        if "_added" in latest_current_df.columns:
+            existing_added = latest_current_df["_added"].astype(bool).tolist()
+        else:
+            existing_added = [False] * len(latest_edit_clean)
+        st.session_state[key_current] = _df_with_delete_col(
+            updated_edit,
+            added_mask=existing_added + [True] * len(rows_to_copy),
+        )
+        st.session_state[key_version] = st.session_state.get(key_version, 0) + 1
+        st.session_state[key_force_dirty] = True
+
+        participant_id = st.session_state.get("participant_id")
+        monitor = st.session_state.get("device")
+        if participant_id and monitor:
+            st.session_state[modified_key(participant_id, monitor, phase_label)] = True
+
+        st.session_state[key_editor_status] = {
+            "level": "success",
+            "text": f"Copied {len(rows_to_copy)} row(s) into Edit Data Files.",
+        }
+        st.rerun()
 
 
 # =============================================================================
@@ -94,10 +282,12 @@ def _render_single_phase_viewer(
 
     # Read-only QC full CSV
     st.subheader("📋 Full Summary Data (Read-Only)")
+    _ensure_edit_state_loaded(csv_file=csv_file, access_token=access_token, state_suffix="")
     _render_readonly_csv(
         qc_csv_file=st.session_state.get("qc_csv_file"),
         access_token=access_token,
         state_suffix="",
+        phase_label=phase or "NoPhase",
     )
 
     st.markdown("---")
@@ -167,10 +357,16 @@ def _render_multi_phase_viewer(phase_files, access_token, username, participant_
         qc_tabs = st.tabs(qc_tab_labels)
         for tab, pf in zip(qc_tabs, qc_phases):
             with tab:
+                _ensure_edit_state_loaded(
+                    csv_file=pf.get("csv_file"),
+                    access_token=access_token,
+                    state_suffix=f"_{pf['phase']}",
+                )
                 _render_readonly_csv(
                     qc_csv_file=pf["qc_csv_file"],
                     access_token=access_token,
                     state_suffix=f"_qc_{pf['phase']}",
+                    phase_label=pf["phase"],
                 )
 
     st.markdown("---")
@@ -362,11 +558,13 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
     key_last_saved_url = f"last_saved_url{state_suffix}"
     key_editor_status = f"editor_status{state_suffix}"
     key_save_state_history = f"save_state_history{state_suffix}"
+    key_force_dirty = f"force_dirty{state_suffix}"
     participant_id = st.session_state.get("participant_id")
     monitor = st.session_state.get("device")
     tracked_saves_key = saved_files_key(participant_id, monitor, phase_label)
     st.session_state.setdefault(tracked_saves_key, [])
     st.session_state.setdefault(key_save_state_history, [])
+    st.session_state.setdefault(key_force_dirty, False)
 
     if not csv_file:
         st.warning(f"⚠️ {settings.TARGET_FILES['csv']} not found")
@@ -400,6 +598,9 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
             st.error("❌ Failed to load CSV file.")
             return
 
+    if "_added" not in st.session_state[key_current].columns:
+        st.session_state[key_current].insert(1, "_added", False)
+
     version = st.session_state.get(key_version, 0)
     edited_df = st.data_editor(
         st.session_state[key_current],
@@ -410,13 +611,20 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                 "🗑️ Delete",
                 help="Check to mark this row for deletion. Marked rows are removed when you save.",
                 default=False,
-            )
+            ),
+            "_added": st.column_config.CheckboxColumn(
+                "➕ Added",
+                help="Rows copied from Full Summary Data and not yet saved.",
+                default=False,
+            ),
         },
+        disabled=["_added"],
         key=f"data_editor{state_suffix}_{version}",
     )
 
     rows_to_delete = int(edited_df["_to_delete"].sum())
-    data_changed = not edited_df.equals(st.session_state[key_current])
+    rows_added = int(edited_df["_added"].sum())
+    data_changed = st.session_state.get(key_force_dirty, False) or not edited_df.equals(st.session_state[key_current])
     editor_status = st.session_state.pop(key_editor_status, None)
 
     # Red-highlighted preview of rows marked for deletion
@@ -433,6 +641,25 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
 
         st.dataframe(
             edited_df.style.apply(_highlight_deleted, axis=1),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    if rows_added > 0:
+        st.info(
+            f"➕ **{rows_added} row(s) copied from Full Summary Data** — "
+            "shown in green below. Save with data modifications to persist them."
+        )
+
+        def _highlight_added(row):
+            if row["_added"] and not row["_to_delete"]:
+                return ["background-color: #dff6dd; color: #0b6e4f"] * len(row)
+            if row["_added"] and row["_to_delete"]:
+                return ["background-color: #ffe8cc; color: #8a4b08"] * len(row)
+            return [""] * len(row)
+
+        st.dataframe(
+            edited_df.style.apply(_highlight_added, axis=1),
             use_container_width=True,
             hide_index=True,
         )
@@ -492,7 +719,10 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                     previous_state = save_state_history[-1]
                     st.session_state[key_save_state_history] = save_state_history[:-1]
                     st.session_state[key_original] = previous_state["original_df"].copy()
-                    st.session_state[key_current] = previous_state["current_df"].copy()
+                    restored_current = previous_state["current_df"].copy()
+                    if "_added" not in restored_current.columns:
+                        restored_current.insert(1, "_added", False)
+                    st.session_state[key_current] = restored_current
                     if previous_state.get("last_saved"):
                         st.session_state[key_last_saved] = previous_state["last_saved"]
                     else:
@@ -510,6 +740,7 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                     st.session_state.pop(key_last_saved_url, None)
 
                 st.session_state[key_version] = st.session_state.get(key_version, 0) + 1
+                st.session_state[key_force_dirty] = False
                 st.session_state[key_editor_status] = {
                     "level": "success",
                     "text": "✅ Saved changes undone.",
@@ -525,7 +756,7 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
     if save_button and data_changed:
         save_df = (
             edited_df[~edited_df["_to_delete"]]
-            .drop(columns=["_to_delete"])
+            .drop(columns=["_to_delete", "_added"])
             .reset_index(drop=True)
         )
         if save_df.empty:
@@ -552,6 +783,7 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                         st.session_state.get(key_save_state_history, []) + [previous_state]
                     )
                     st.session_state[key_version] = version + 1
+                    st.session_state[key_force_dirty] = False
                     st.session_state[key_editor_status] = {
                         "level": "success",
                         "text": "✅ Save done with data modifications",
