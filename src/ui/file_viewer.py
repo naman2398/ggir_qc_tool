@@ -210,9 +210,32 @@ def _render_activity_log_panel(access_token, phase_label, panel_key_suffix):
     c_key = comment_key(participant_id, monitor, phase_label)
     m_key = modified_key(participant_id, monitor, phase_label)
     l_key = last_entry_key(participant_id, monitor, phase_label)
+    reset_key = f"log_reset::{panel_key_suffix}"
+    status_key = f"log_status::{panel_key_suffix}"
+
+    # Apply pending widget resets before rendering widgets for this run.
+    if st.session_state.pop(reset_key, False):
+        st.session_state[c_key] = ""
+        st.session_state[m_key] = False
+
+    st.session_state.setdefault(c_key, "")
+    st.session_state.setdefault(m_key, False)
 
     st.subheader("📝 Log Activity")
     st.caption(f"Phase: {phase_label}")
+
+    status = st.session_state.pop(status_key, None)
+    if status:
+        level = status.get("level")
+        text = status.get("text", "")
+        if level == "success":
+            st.success(text)
+        elif level == "warning":
+            st.warning(text)
+        elif level == "info":
+            st.info(text)
+        elif level == "error":
+            st.error(text)
 
     st.text_area(
         "Comments",
@@ -239,16 +262,19 @@ def _render_activity_log_panel(access_token, phase_label, panel_key_suffix):
         clear_clicked = st.button("Clear", key=f"clear_log_{panel_key_suffix}")
 
     if clear_clicked:
-        st.session_state[c_key] = ""
-        st.session_state[m_key] = False
-        st.info("Draft comment cleared.")
+        st.session_state[reset_key] = True
+        st.session_state[status_key] = {"level": "info", "text": "Draft comment cleared."}
+        st.rerun()
 
     if skip_clicked:
         st.session_state[d_key] = DECISION_SKIPPED
-        st.session_state[c_key] = ""
-        st.session_state[m_key] = False
+        st.session_state[reset_key] = True
         st.session_state.pop(l_key, None)
-        st.warning(f"Logging skipped for {phase_label}. You can still submit a log before leaving.")
+        st.session_state[status_key] = {
+            "level": "warning",
+            "text": f"Logging skipped for {phase_label}. You can still submit a log before leaving.",
+        }
+        st.rerun()
 
     if log_clicked:
         comments = st.session_state.get(c_key, "").strip()
@@ -271,9 +297,9 @@ def _render_activity_log_panel(access_token, phase_label, panel_key_suffix):
                 **payload,
                 "timestamp_QC'ed": result.get("timestamp"),
             }
-            st.session_state[c_key] = ""
-            st.session_state[m_key] = False
-            st.success("✅ Activity logged successfully.")
+            st.session_state[reset_key] = True
+            st.session_state[status_key] = {"level": "success", "text": "✅ Activity logged successfully."}
+            st.rerun()
         else:
             st.error(f"❌ Log failed: {result.get('error', 'Unknown error')}")
 
