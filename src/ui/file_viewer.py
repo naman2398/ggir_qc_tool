@@ -360,10 +360,13 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
     key_version = f"data_editor_version{state_suffix}"
     key_last_saved = f"last_saved_file{state_suffix}"
     key_last_saved_url = f"last_saved_url{state_suffix}"
+    key_editor_status = f"editor_status{state_suffix}"
+    key_save_state_history = f"save_state_history{state_suffix}"
     participant_id = st.session_state.get("participant_id")
     monitor = st.session_state.get("device")
     tracked_saves_key = saved_files_key(participant_id, monitor, phase_label)
     st.session_state.setdefault(tracked_saves_key, [])
+    st.session_state.setdefault(key_save_state_history, [])
 
     if not csv_file:
         st.warning(f"⚠️ {settings.TARGET_FILES['csv']} not found")
@@ -414,6 +417,7 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
 
     rows_to_delete = int(edited_df["_to_delete"].sum())
     data_changed = not edited_df.equals(st.session_state[key_current])
+    editor_status = st.session_state.pop(key_editor_status, None)
 
     # Red-highlighted preview of rows marked for deletion
     if rows_to_delete > 0:
@@ -454,28 +458,69 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
             key=f"undo_save_btn{state_suffix}",
         )
     with col_status:
-        st.warning("⚠️ Unsaved changes") if data_changed else st.success("✅ All changes saved")
+        if editor_status:
+            level = editor_status.get("level")
+            text = editor_status.get("text", "")
+            if level == "success":
+                st.success(text)
+            elif level == "warning":
+                st.warning(text)
+            elif level == "error":
+                st.error(text)
+            else:
+                st.info(text)
+        else:
+            st.warning("⚠️ Unsaved changes") if data_changed else st.success("✅ All changes saved")
 
     if undo_button:
         tracked_saves = st.session_state.get(tracked_saves_key, [])
         if not tracked_saves:
-            st.warning("⚠️ No saved files from this session to undo.")
+            st.session_state[key_editor_status] = {
+                "level": "warning",
+                "text": "No saved files from this session to undo.",
+            }
+            st.rerun()
         else:
             latest_file = tracked_saves[-1]
             delete_result = delete_file_by_id(access_token, latest_file.get("id"))
             if delete_result.get("success"):
                 updated_history = tracked_saves[:-1]
                 st.session_state[tracked_saves_key] = updated_history
+
+                save_state_history = st.session_state.get(key_save_state_history, [])
+                if save_state_history:
+                    previous_state = save_state_history[-1]
+                    st.session_state[key_save_state_history] = save_state_history[:-1]
+                    st.session_state[key_original] = previous_state["original_df"].copy()
+                    st.session_state[key_current] = previous_state["current_df"].copy()
+                    if previous_state.get("last_saved"):
+                        st.session_state[key_last_saved] = previous_state["last_saved"]
+                    else:
+                        st.session_state.pop(key_last_saved, None)
+                    if previous_state.get("last_saved_url"):
+                        st.session_state[key_last_saved_url] = previous_state["last_saved_url"]
+                    else:
+                        st.session_state.pop(key_last_saved_url, None)
+
                 if updated_history:
                     st.session_state[key_last_saved] = updated_history[-1].get("name")
                     st.session_state[key_last_saved_url] = updated_history[-1].get("webUrl", "")
-                else:
+                elif not save_state_history:
                     st.session_state.pop(key_last_saved, None)
                     st.session_state.pop(key_last_saved_url, None)
-                st.success("✅ Last saved file was removed from SharePoint.")
+
+                st.session_state[key_version] = st.session_state.get(key_version, 0) + 1
+                st.session_state[key_editor_status] = {
+                    "level": "success",
+                    "text": "✅ Saved changes undone.",
+                }
                 st.rerun()
             else:
-                st.error(f"❌ Undo failed: {delete_result.get('error', 'Unknown error')}")
+                st.session_state[key_editor_status] = {
+                    "level": "error",
+                    "text": f"Undo failed: {delete_result.get('error', 'Unknown error')}",
+                }
+                st.rerun()
 
     if save_button and data_changed:
         save_df = (
@@ -487,6 +532,12 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
             st.error("❌ Cannot save: all rows are marked for deletion.")
         else:
             with st.spinner("Saving new version..."):
+                previous_state = {
+                    "original_df": st.session_state[key_original].copy(),
+                    "current_df": st.session_state[key_current].copy(),
+                    "last_saved": st.session_state.get(key_last_saved),
+                    "last_saved_url": st.session_state.get(key_last_saved_url),
+                }
                 new_file = upload_csv(
                     access_token, folder_path,
                     settings.TARGET_FILES["csv"], save_df, username,
@@ -497,14 +548,31 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                     st.session_state[key_last_saved] = new_file["name"]
                     st.session_state[key_last_saved_url] = new_file.get("webUrl", "")
                     st.session_state[tracked_saves_key] = st.session_state.get(tracked_saves_key, []) + [new_file]
+                    st.session_state[key_save_state_history] = (
+                        st.session_state.get(key_save_state_history, []) + [previous_state]
+                    )
                     st.session_state[key_version] = version + 1
+                    st.session_state[key_editor_status] = {
+                        "level": "success",
+                        "text": "✅ Save done with data modifications",
+                    }
                     st.rerun()
                 else:
-                    st.error("❌ Failed to save. Please try again.")
+                    st.session_state[key_editor_status] = {
+                        "level": "error",
+                        "text": "Failed to save. Please try again.",
+                    }
+                    st.rerun()
 
     if save_without_changes_button:
         unchanged_df = st.session_state[key_original].copy()
         with st.spinner("Saving unchanged copy..."):
+            previous_state = {
+                "original_df": st.session_state[key_original].copy(),
+                "current_df": st.session_state[key_current].copy(),
+                "last_saved": st.session_state.get(key_last_saved),
+                "last_saved_url": st.session_state.get(key_last_saved_url),
+            }
             new_file = upload_csv(
                 access_token,
                 folder_path,
@@ -517,10 +585,20 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                 st.session_state[key_last_saved] = new_file["name"]
                 st.session_state[key_last_saved_url] = new_file.get("webUrl", "")
                 st.session_state[tracked_saves_key] = st.session_state.get(tracked_saves_key, []) + [new_file]
-                st.success("✅ Unchanged copy saved to SharePoint.")
+                st.session_state[key_save_state_history] = (
+                    st.session_state.get(key_save_state_history, []) + [previous_state]
+                )
+                st.session_state[key_editor_status] = {
+                    "level": "success",
+                    "text": "Save done without data modifications",
+                }
                 st.rerun()
             else:
-                st.error("❌ Failed to save unchanged copy. Please try again.")
+                st.session_state[key_editor_status] = {
+                    "level": "error",
+                    "text": "Failed to save unchanged copy. Please try again.",
+                }
+                st.rerun()
 
     st.markdown("---")
     _render_activity_log_panel(

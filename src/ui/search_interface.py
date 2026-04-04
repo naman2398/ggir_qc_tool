@@ -60,6 +60,8 @@ _PHASED_KEYS_PREFIX = (
     "save_btn",
     "save_without_btn",
     "undo_save_btn",
+    "editor_status_",
+    "save_state_history_",
 )
 
 
@@ -71,6 +73,7 @@ def _clear_file_state():
         "csv_file", "pdf_file_sleep", "pdf_file_data",
         "original_df", "current_df", "data_editor_version", "last_saved_file",
         "last_saved_url", "qc_csv_file", "phase_files", "save_without_btn", "undo_save_btn",
+        "editor_status", "save_state_history",
     ]:
         st.session_state.pop(key, None)
 
