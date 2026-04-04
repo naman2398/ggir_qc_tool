@@ -89,23 +89,10 @@ def _missing_summary_mask(summary_df, edit_df):
     if set(summary_norm.columns) != set(edit_norm.columns):
         return pd.Series([True] * len(summary_norm), index=summary_norm.index)
 
-    ordered_cols = sorted(summary_norm.columns)
-    summary_cmp = summary_norm.loc[:, ordered_cols].map(_normalize_cell)
-    edit_cmp = edit_norm.loc[:, ordered_cols].map(_normalize_cell)
-
-    # Multiset-aware diff: preserves duplicate counts when computing missing rows.
-    summary_ranked = summary_cmp.copy()
-    summary_ranked["_dup_rank"] = summary_cmp.groupby(ordered_cols, dropna=False).cumcount()
-    edit_ranked = edit_cmp.copy()
-    edit_ranked["_dup_rank"] = edit_cmp.groupby(ordered_cols, dropna=False).cumcount()
-
-    merged = summary_ranked.merge(
-        edit_ranked,
-        on=ordered_cols + ["_dup_rank"],
-        how="left",
-        indicator=True,
-    )
-    return merged["_merge"].eq("left_only")
+    # Set-difference semantics (row uniqueness is guaranteed per user requirement).
+    summary_signatures = _row_signatures(summary_norm)
+    edit_signature_set = set(_row_signatures(edit_norm).tolist())
+    return ~summary_signatures.isin(edit_signature_set)
 
 
 def _ensure_edit_state_loaded(csv_file, access_token, state_suffix):

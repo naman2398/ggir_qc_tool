@@ -87,3 +87,21 @@ def test_missing_summary_mask_ignores_unnamed_index_artifact_column():
 
     mask = _missing_summary_mask(summary_df, edit_df)
     assert mask.tolist() == [False, False]
+
+
+def test_missing_summary_mask_handles_mixed_dtypes_without_merge_error():
+    summary_df = pd.DataFrame(
+        [
+            {"error_dur": 12.5, "flag": "ok"},
+            {"error_dur": 3.0, "flag": "warn"},
+        ]
+    )
+    edit_df = pd.DataFrame(
+        [
+            {"error_dur": "12.5", "flag": "ok"},
+            {"error_dur": 3.0, "flag": "warn"},
+        ]
+    )
+
+    mask = _missing_summary_mask(summary_df, edit_df)
+    assert mask.tolist() == [True, False]
