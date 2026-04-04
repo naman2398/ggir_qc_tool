@@ -4,6 +4,8 @@ LOG_DECISION_PREFIX = "log_decision::"
 LOG_COMMENT_PREFIX = "log_comment::"
 LOG_MODIFIED_PREFIX = "log_modified::"
 LOG_LAST_ENTRY_PREFIX = "log_last_entry::"
+LOG_ACTIVITY_ROWS_PREFIX = "log_rows::"
+LOG_SAVED_FILES_PREFIX = "saved_files::"
 
 DECISION_LOGGED = "logged"
 DECISION_SKIPPED = "skipped"
@@ -29,6 +31,14 @@ def modified_key(participant_id, monitor, phase):
 
 def last_entry_key(participant_id, monitor, phase):
     return f"{LOG_LAST_ENTRY_PREFIX}{_scope_token(participant_id, monitor, phase)}"
+
+
+def activity_rows_key(participant_id, monitor, phase):
+    return f"{LOG_ACTIVITY_ROWS_PREFIX}{_scope_token(participant_id, monitor, phase)}"
+
+
+def saved_files_key(participant_id, monitor, phase):
+    return f"{LOG_SAVED_FILES_PREFIX}{_scope_token(participant_id, monitor, phase)}"
 
 
 def required_phase_labels(session_state):
@@ -72,5 +82,7 @@ def all_activity_state_keys(session_state):
         LOG_COMMENT_PREFIX,
         LOG_MODIFIED_PREFIX,
         LOG_LAST_ENTRY_PREFIX,
+        LOG_ACTIVITY_ROWS_PREFIX,
+        LOG_SAVED_FILES_PREFIX,
     )
     return [k for k in session_state.keys() if k.startswith(prefixes)]

@@ -50,7 +50,17 @@ def _save_participant(device: str, pid: str) -> None:
         yaml.dump(data, fh, default_flow_style=False, allow_unicode=True, sort_keys=True)
 
 
-_PHASED_KEYS_PREFIX = ("original_df_", "current_df_", "data_editor_version_", "last_saved_file_", "last_saved_url_", "qc_df_")
+_PHASED_KEYS_PREFIX = (
+    "original_df_",
+    "current_df_",
+    "data_editor_version_",
+    "last_saved_file_",
+    "last_saved_url_",
+    "qc_df_",
+    "save_btn",
+    "save_without_btn",
+    "undo_save_btn",
+)
 
 
 def _clear_file_state():
@@ -60,7 +70,7 @@ def _clear_file_state():
         "participant_id", "device", "phase", "folder_path",
         "csv_file", "pdf_file_sleep", "pdf_file_data",
         "original_df", "current_df", "data_editor_version", "last_saved_file",
-        "last_saved_url", "qc_csv_file", "phase_files",
+        "last_saved_url", "qc_csv_file", "phase_files", "save_without_btn", "undo_save_btn",
     ]:
         st.session_state.pop(key, None)
 

@@ -225,10 +225,12 @@ def download_csv(access_token, file_id):
         return None
 
 
-def build_versioned_filename(base_filename, username):
-    """Build filename as {base}_{username}_{YYYYMMDD_HHMMSS}.{ext}."""
+def build_versioned_filename(base_filename, username, tag=None):
+    """Build filename as {base}_{username}_{tag}_{YYYYMMDD_HHMMSS}.{ext}."""
     name_part, ext = base_filename.rsplit(".", 1) if "." in base_filename else (base_filename, "csv")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if tag:
+        return f"{name_part}_{username}_{tag}_{timestamp}.{ext}"
     return f"{name_part}_{username}_{timestamp}.{ext}"
 
 
@@ -261,7 +263,15 @@ def get_next_version(access_token, folder_path, base_filename, username):
         return 1
 
 
-def upload_csv(access_token, folder_path, base_filename, dataframe, username="unknown_user", root_path=None):
+def upload_csv(
+    access_token,
+    folder_path,
+    base_filename,
+    dataframe,
+    username="unknown_user",
+    root_path=None,
+    filename_tag=None,
+):
     """Upload DataFrame as versioned CSV file.
     
     root_path: SharePoint root to save under. Defaults to QC_ROOT_FOLDER_PATH so that
@@ -271,7 +281,7 @@ def upload_csv(access_token, folder_path, base_filename, dataframe, username="un
         root_path = settings.QC_ROOT_FOLDER_PATH
     try:
         drive_id = get_drive_id(access_token)
-        new_filename = build_versioned_filename(base_filename, username)
+        new_filename = build_versioned_filename(base_filename, username, tag=filename_tag)
         
         full_path = f"{root_path}/{folder_path}{new_filename}"
         encoded_path = quote(full_path, safe="/")
@@ -286,10 +296,31 @@ def upload_csv(access_token, folder_path, base_filename, dataframe, username="un
         resp.raise_for_status()
         
         data = resp.json()
-        return {"id": data["id"], "name": data["name"], "webUrl": data.get("webUrl", "")}
+        return {
+            "id": data["id"],
+            "name": data["name"],
+            "webUrl": data.get("webUrl", ""),
+            "folder_path": folder_path,
+        }
     except Exception as e:
         st.error(f"Error uploading file: {e}")
         return None
+
+
+def delete_file_by_id(access_token, file_id):
+    """Delete a SharePoint file by item ID."""
+    try:
+        drive_id = get_drive_id(access_token)
+        url = f"{settings.GRAPH_API_ENDPOINT}/drives/{drive_id}/items/{file_id}"
+        resp = requests.delete(url, headers={"Authorization": f"Bearer {access_token}"})
+        if resp.status_code in {200, 202, 204}:
+            return {"success": True}
+        if resp.status_code == 404:
+            return {"success": False, "error": "Saved file was not found on SharePoint."}
+        resp.raise_for_status()
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to delete file: {e}"}
 
 
 def _validate_activity_payload(log_row):
@@ -379,3 +410,73 @@ def log_to_sharepoint(access_token, log_row, root_path=None):
         return {"success": True, "timestamp": timestamp}
     except Exception as e:
         return {"success": False, "error": f"Failed to log activity: {e}"}
+
+
+def remove_last_activity_log_for_scope(access_token, participant_id, monitor, phase_label, timestamp, root_path=None):
+    """Remove the latest session log row matching scope + timestamp from activity CSV."""
+    if root_path is None:
+        root_path = settings.QC_ROOT_FOLDER_PATH
+
+    try:
+        drive_id = get_drive_id(access_token)
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        csv_path = f"{root_path}/{settings.ACTIVITY_LOG_FILE}"
+        encoded_path = quote(csv_path, safe="/")
+        content_url = f"{settings.GRAPH_API_ENDPOINT}/drives/{drive_id}/root:/{encoded_path}:/content"
+
+        get_resp = requests.get(content_url, headers=headers)
+        if get_resp.status_code == 404:
+            return {"success": False, "error": "Activity log file was not found."}
+        get_resp.raise_for_status()
+
+        content = get_resp.content.decode("utf-8-sig")
+        if not content.strip():
+            return {"success": False, "error": "Activity log file is empty."}
+
+        current_df = pd.read_csv(io.StringIO(content))
+        expected_headers = settings.ACTIVITY_LOG_HEADERS
+        if list(current_df.columns) != expected_headers:
+            return {
+                "success": False,
+                "error": (
+                    "Header mismatch in activity log CSV. "
+                    f"Expected {expected_headers} but found {list(current_df.columns)}"
+                ),
+            }
+
+        mask = (
+            (current_df["Participant_ID"].astype(str) == str(participant_id))
+            & (current_df["Monitor"].astype(str) == str(monitor))
+            & (current_df["Study_Phase"].astype(str) == str(phase_label))
+            & (current_df["timestamp_QC'ed"].astype(str) == str(timestamp))
+        )
+        match_indices = current_df.index[mask].tolist()
+        if not match_indices:
+            return {
+                "success": False,
+                "error": "No matching logged activity found for this session entry.",
+            }
+
+        drop_index = match_indices[-1]
+        updated_df = current_df.drop(index=drop_index).reset_index(drop=True)
+        csv_bytes = updated_df.to_csv(index=False).encode("utf-8")
+
+        put_resp = requests.put(
+            content_url,
+            headers={
+                **headers,
+                "Content-Type": "text/csv",
+            },
+            data=csv_bytes,
+        )
+        if put_resp.status_code in {409, 423}:
+            return {
+                "success": False,
+                "error": "Activity log file is locked or has a write conflict. Please retry.",
+            }
+        put_resp.raise_for_status()
+
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to clear logged activity: {e}"}

@@ -2,15 +2,23 @@
 
 import streamlit as st
 from config import settings
-from src.api.file_operations import download_csv, log_to_sharepoint, upload_csv
+from src.api.file_operations import (
+    delete_file_by_id,
+    download_csv,
+    log_to_sharepoint,
+    remove_last_activity_log_for_scope,
+    upload_csv,
+)
 from src.ui.activity_logging import (
     DECISION_LOGGED,
     DECISION_SKIPPED,
+    activity_rows_key,
     comment_key,
     decision_key,
     last_entry_key,
     modified_key,
     pending_phase_labels,
+    saved_files_key,
 )
 
 
@@ -210,6 +218,7 @@ def _render_activity_log_panel(access_token, phase_label, panel_key_suffix):
     c_key = comment_key(participant_id, monitor, phase_label)
     m_key = modified_key(participant_id, monitor, phase_label)
     l_key = last_entry_key(participant_id, monitor, phase_label)
+    rows_key = activity_rows_key(participant_id, monitor, phase_label)
     reset_key = f"log_reset::{panel_key_suffix}"
     status_key = f"log_status::{panel_key_suffix}"
 
@@ -245,6 +254,8 @@ def _render_activity_log_panel(access_token, phase_label, panel_key_suffix):
     )
     st.checkbox("Data Modified", key=m_key)
 
+    st.session_state.setdefault(rows_key, [])
+
     col_log, col_skip, col_clear = st.columns(3)
     with col_log:
         log_clicked = st.button(
@@ -259,11 +270,34 @@ def _render_activity_log_panel(access_token, phase_label, panel_key_suffix):
             help="Choose this when you explicitly do not want to create a log row.",
         )
     with col_clear:
-        clear_clicked = st.button("Clear", key=f"clear_log_{panel_key_suffix}")
+        clear_clicked = st.button("Clear logged activity", key=f"clear_log_{panel_key_suffix}")
 
     if clear_clicked:
-        st.session_state[reset_key] = True
-        st.session_state[status_key] = {"level": "info", "text": "Draft comment cleared."}
+        logged_rows = st.session_state.get(rows_key, [])
+        if not logged_rows:
+            st.session_state[status_key] = {
+                "level": "warning",
+                "text": "No session log entry to clear for this phase.",
+            }
+            st.rerun()
+
+        latest_row = logged_rows[-1]
+        result = remove_last_activity_log_for_scope(
+            access_token=access_token,
+            participant_id=participant_id,
+            monitor=monitor,
+            phase_label=phase_label,
+            timestamp=latest_row.get("timestamp_QC'ed"),
+        )
+        if result.get("success"):
+            st.session_state[rows_key] = logged_rows[:-1]
+            st.session_state.pop(l_key, None)
+            st.session_state[status_key] = {"level": "success", "text": "✅ Logged activity cleared."}
+        else:
+            st.session_state[status_key] = {
+                "level": "error",
+                "text": f"❌ Clear failed: {result.get('error', 'Unknown error')}",
+            }
         st.rerun()
 
     if skip_clicked:
@@ -293,10 +327,12 @@ def _render_activity_log_panel(access_token, phase_label, panel_key_suffix):
 
         if result.get("success"):
             st.session_state[d_key] = DECISION_LOGGED
-            st.session_state[l_key] = {
+            latest_entry = {
                 **payload,
                 "timestamp_QC'ed": result.get("timestamp"),
             }
+            st.session_state[l_key] = latest_entry
+            st.session_state[rows_key] = st.session_state.get(rows_key, []) + [latest_entry]
             st.session_state[reset_key] = True
             st.session_state[status_key] = {"level": "success", "text": "✅ Activity logged successfully."}
             st.rerun()
@@ -306,12 +342,10 @@ def _render_activity_log_panel(access_token, phase_label, panel_key_suffix):
     last_entry = st.session_state.get(l_key)
     if last_entry:
         st.caption(
-            "Last local submission: "
+            "Last submission this session: "
             f"{last_entry.get('timestamp_QC\'ed', '')} | "
             f"{last_entry.get('QC_Outcome', '')}"
         )
-        if st.button("Delete local submission preview", key=f"delete_preview_{panel_key_suffix}"):
-            st.session_state.pop(l_key, None)
 
 
 def _render_csv_editor(csv_file, folder_path, access_token, username, state_suffix, phase_label):
@@ -326,6 +360,10 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
     key_version = f"data_editor_version{state_suffix}"
     key_last_saved = f"last_saved_file{state_suffix}"
     key_last_saved_url = f"last_saved_url{state_suffix}"
+    participant_id = st.session_state.get("participant_id")
+    monitor = st.session_state.get("device")
+    tracked_saves_key = saved_files_key(participant_id, monitor, phase_label)
+    st.session_state.setdefault(tracked_saves_key, [])
 
     if not csv_file:
         st.warning(f"⚠️ {settings.TARGET_FILES['csv']} not found")
@@ -395,16 +433,49 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
             hide_index=True,
         )
 
-    col_save, col_status = st.columns([1, 2])
-    with col_save:
+    col_save_modified, col_save_unchanged, col_undo, col_status = st.columns([1.3, 1.6, 1.1, 2.2])
+    with col_save_modified:
         save_button = st.button(
-            "💾 Save Changes",
+            "Save with data modifications",
             type="primary",
             disabled=not data_changed,
             key=f"save_btn{state_suffix}",
         )
+    with col_save_unchanged:
+        save_without_changes_button = st.button(
+            "Save without data modifications",
+            key=f"save_without_btn{state_suffix}",
+        )
+    with col_undo:
+        tracked_saves = st.session_state.get(tracked_saves_key, [])
+        undo_button = st.button(
+            "Undo saved changes",
+            disabled=len(tracked_saves) == 0,
+            key=f"undo_save_btn{state_suffix}",
+        )
     with col_status:
         st.warning("⚠️ Unsaved changes") if data_changed else st.success("✅ All changes saved")
+
+    if undo_button:
+        tracked_saves = st.session_state.get(tracked_saves_key, [])
+        if not tracked_saves:
+            st.warning("⚠️ No saved files from this session to undo.")
+        else:
+            latest_file = tracked_saves[-1]
+            delete_result = delete_file_by_id(access_token, latest_file.get("id"))
+            if delete_result.get("success"):
+                updated_history = tracked_saves[:-1]
+                st.session_state[tracked_saves_key] = updated_history
+                if updated_history:
+                    st.session_state[key_last_saved] = updated_history[-1].get("name")
+                    st.session_state[key_last_saved_url] = updated_history[-1].get("webUrl", "")
+                else:
+                    st.session_state.pop(key_last_saved, None)
+                    st.session_state.pop(key_last_saved_url, None)
+                st.success("✅ Last saved file was removed from SharePoint.")
+                st.rerun()
+            else:
+                st.error(f"❌ Undo failed: {delete_result.get('error', 'Unknown error')}")
 
     if save_button and data_changed:
         save_df = (
@@ -425,10 +496,31 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                     st.session_state[key_current] = _df_with_delete_col(save_df)
                     st.session_state[key_last_saved] = new_file["name"]
                     st.session_state[key_last_saved_url] = new_file.get("webUrl", "")
+                    st.session_state[tracked_saves_key] = st.session_state.get(tracked_saves_key, []) + [new_file]
                     st.session_state[key_version] = version + 1
                     st.rerun()
                 else:
                     st.error("❌ Failed to save. Please try again.")
+
+    if save_without_changes_button:
+        unchanged_df = st.session_state[key_original].copy()
+        with st.spinner("Saving unchanged copy..."):
+            new_file = upload_csv(
+                access_token,
+                folder_path,
+                settings.TARGET_FILES["csv"],
+                unchanged_df,
+                username,
+                filename_tag="unchanged",
+            )
+            if new_file:
+                st.session_state[key_last_saved] = new_file["name"]
+                st.session_state[key_last_saved_url] = new_file.get("webUrl", "")
+                st.session_state[tracked_saves_key] = st.session_state.get(tracked_saves_key, []) + [new_file]
+                st.success("✅ Unchanged copy saved to SharePoint.")
+                st.rerun()
+            else:
+                st.error("❌ Failed to save unchanged copy. Please try again.")
 
     st.markdown("---")
     _render_activity_log_panel(
