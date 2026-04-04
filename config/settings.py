@@ -58,10 +58,8 @@ ROOT_FOLDER_PATH = "Actigraphy Analysis (Multi-Study Data Sets)/GGIR_final_outpu
 QC_ROOT_FOLDER_PATH = "Actigraphy Analysis (Multi-Study Data Sets)/GGIR_QC_outputs"
 ACCESS_LIST_FILE = "App_Access_List.xlsx"
 
-# Activity logging workbook configuration
-ACTIVITY_LOG_WORKBOOK = "user_comments.xlsx"
-ACTIVITY_LOG_SHEET = "user_comments"
-ACTIVITY_LOG_TABLE = "user_comments"
+# Activity logging file configuration
+ACTIVITY_LOG_FILE = "user_comments.csv"
 ACTIVITY_LOG_HEADERS = [
     "User_email",
     "Monitor",

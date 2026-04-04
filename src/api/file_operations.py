@@ -8,8 +8,6 @@ import requests
 import io
 from datetime import datetime, timezone
 from urllib.parse import quote
-from openpyxl import load_workbook
-from openpyxl.utils.cell import range_boundaries, get_column_letter
 from config import settings
 
 
@@ -307,7 +305,7 @@ def _validate_activity_payload(log_row):
 
 
 def log_to_sharepoint(access_token, log_row, root_path=None):
-    """Append one activity row into the configured SharePoint Excel table.
+    """Append one activity row into the configured SharePoint CSV file.
 
     Args:
         access_token: Microsoft Graph access token.
@@ -331,73 +329,50 @@ def log_to_sharepoint(access_token, log_row, root_path=None):
         drive_id = get_drive_id(access_token)
         headers = {"Authorization": f"Bearer {access_token}"}
 
-        workbook_path = f"{root_path}/{settings.ACTIVITY_LOG_WORKBOOK}"
-        encoded_path = quote(workbook_path, safe="/")
+        csv_path = f"{root_path}/{settings.ACTIVITY_LOG_FILE}"
+        encoded_path = quote(csv_path, safe="/")
         content_url = f"{settings.GRAPH_API_ENDPOINT}/drives/{drive_id}/root:/{encoded_path}:/content"
 
-        # Download current workbook bytes from SharePoint.
+        # Download current CSV if it exists.
         get_resp = requests.get(content_url, headers=headers)
-        if get_resp.status_code == 404:
-            return {
-                "success": False,
-                "error": f"Workbook not found at {workbook_path}",
-            }
-        get_resp.raise_for_status()
-
-        workbook = load_workbook(io.BytesIO(get_resp.content))
-        sheet_name = settings.ACTIVITY_LOG_SHEET
-        table_name = settings.ACTIVITY_LOG_TABLE
-
-        if sheet_name not in workbook.sheetnames:
-            return {
-                "success": False,
-                "error": f"Worksheet '{sheet_name}' not found in workbook",
-            }
-
-        worksheet = workbook[sheet_name]
-        table = worksheet.tables.get(table_name)
-        if not table:
-            return {
-                "success": False,
-                "error": f"Table '{table_name}' not found in worksheet '{sheet_name}'",
-            }
-
-        min_col, min_row, max_col, max_row = range_boundaries(table.ref)
         expected_headers = settings.ACTIVITY_LOG_HEADERS
-        table_headers = [worksheet.cell(row=min_row, column=col).value for col in range(min_col, max_col + 1)]
-        if table_headers != expected_headers:
+        if get_resp.status_code == 404:
+            current_df = pd.DataFrame(columns=expected_headers)
+        else:
+            get_resp.raise_for_status()
+            content = get_resp.content.decode("utf-8-sig")
+            if content.strip():
+                current_df = pd.read_csv(io.StringIO(content))
+            else:
+                current_df = pd.DataFrame(columns=expected_headers)
+
+        if list(current_df.columns) != expected_headers:
             return {
                 "success": False,
                 "error": (
-                    "Header mismatch in activity log table. "
-                    f"Expected {expected_headers} but found {table_headers}"
+                    "Header mismatch in activity log CSV. "
+                    f"Expected {expected_headers} but found {list(current_df.columns)}"
                 ),
             }
 
-        next_row = max_row + 1
-        for col_idx, header in enumerate(expected_headers, start=min_col):
-            worksheet.cell(row=next_row, column=col_idx, value=row_values[header])
-
-        start_col_letter = get_column_letter(min_col)
-        end_col_letter = get_column_letter(max_col)
-        table.ref = f"{start_col_letter}{min_row}:{end_col_letter}{next_row}"
-
-        out_buffer = io.BytesIO()
-        workbook.save(out_buffer)
-        out_buffer.seek(0)
+        updated_df = pd.concat(
+            [current_df, pd.DataFrame([row_values], columns=expected_headers)],
+            ignore_index=True,
+        )
+        csv_bytes = updated_df.to_csv(index=False).encode("utf-8")
 
         put_resp = requests.put(
             content_url,
             headers={
                 **headers,
-                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "Content-Type": "text/csv",
             },
-            data=out_buffer.getvalue(),
+            data=csv_bytes,
         )
         if put_resp.status_code in {409, 423}:
             return {
                 "success": False,
-                "error": "Workbook is locked or has a write conflict. Please retry.",
+                "error": "Activity log file is locked or has a write conflict. Please retry.",
             }
         put_resp.raise_for_status()
 
