@@ -105,6 +105,10 @@ def render_search_interface():
     """Render file search interface. Returns (success, search_performed)."""
     st.header("🔍 Find Participant Data")
 
+    # Avoid showing stale guard messages once all pending log decisions are resolved.
+    if not has_pending_log_decisions(st.session_state):
+        st.session_state.pop("log_guard_message", None)
+
     if st.session_state.get("log_guard_message"):
         st.error(st.session_state["log_guard_message"])
         st.session_state.pop("log_guard_message", None)

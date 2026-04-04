@@ -3,7 +3,14 @@
 import streamlit as st
 from src.auth.msal_auth import get_access_token
 from src.auth.user_auth import check_email_password_authorization, extract_username_from_email
-from src.ui.activity_logging import has_pending_log_decisions, pending_phase_labels
+from src.ui.activity_logging import (
+    DECISION_LOGGED,
+    DECISION_SKIPPED,
+    decision_key,
+    has_pending_log_decisions,
+    pending_phase_labels,
+    required_phase_labels,
+)
 
 # =============================================================================
 # EXCEL-BASED USER AUTHORIZATION (Commented out - requires SharePoint access)
@@ -19,6 +26,29 @@ def render_sidebar():
         if st.session_state.get("authorized", False) and st.session_state.get("access_token"):
             st.header("🔐 Session")
             st.caption(f"User: {st.session_state.get('user_email', 'unknown')}")
+
+            participant_id = st.session_state.get("participant_id")
+            monitor = st.session_state.get("device")
+            if participant_id and monitor:
+                st.caption(f"Participant: {participant_id}")
+                st.caption(f"Monitor: {monitor}")
+
+                st.markdown("**Activity Logging**")
+                phases = required_phase_labels(st.session_state)
+                if phases:
+                    completed = 0
+                    for phase in phases:
+                        d_key = decision_key(participant_id, monitor, phase)
+                        decision = st.session_state.get(d_key)
+                        if decision == DECISION_LOGGED:
+                            completed += 1
+                            st.caption(f"- {phase}: Logged")
+                        elif decision == DECISION_SKIPPED:
+                            completed += 1
+                            st.caption(f"- {phase}: Skipped")
+                        else:
+                            st.caption(f"- {phase}: Pending")
+                    st.caption(f"Progress: {completed}/{len(phases)} phase(s) decided")
 
             pending = has_pending_log_decisions(st.session_state)
             if pending:
