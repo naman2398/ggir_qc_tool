@@ -58,6 +58,20 @@ ROOT_FOLDER_PATH = "Actigraphy Analysis (Multi-Study Data Sets)/GGIR_final_outpu
 QC_ROOT_FOLDER_PATH = "Actigraphy Analysis (Multi-Study Data Sets)/GGIR_QC_outputs"
 ACCESS_LIST_FILE = "App_Access_List.xlsx"
 
+# Activity logging workbook configuration
+ACTIVITY_LOG_WORKBOOK = "user_comments.xlsx"
+ACTIVITY_LOG_SHEET = "user_comments"
+ACTIVITY_LOG_TABLE = "user_comments"
+ACTIVITY_LOG_HEADERS = [
+    "User_email",
+    "Monitor",
+    "Participant_ID",
+    "Study_Phase",
+    "QC_Outcome",
+    "Comments",
+    "timestamp_QC'ed",
+]
+
 # Microsoft Graph API
 GRAPH_API_ENDPOINT = "https://graph.microsoft.com/v1.0"
 AUTHORITY_URL = "https://login.microsoftonline.com/{tenant_id}"

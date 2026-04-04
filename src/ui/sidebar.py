@@ -3,6 +3,7 @@
 import streamlit as st
 from src.auth.msal_auth import get_access_token
 from src.auth.user_auth import check_email_password_authorization, extract_username_from_email
+from src.ui.activity_logging import has_pending_log_decisions, pending_phase_labels
 
 # =============================================================================
 # EXCEL-BASED USER AUTHORIZATION (Commented out - requires SharePoint access)
@@ -13,12 +14,26 @@ from src.auth.user_auth import check_email_password_authorization, extract_usern
 
 def render_sidebar():
     """Render auth sidebar. Returns True if authorized."""
-    
-    # If already authorized, don't show login UI
-    if st.session_state.get("authorized", False) and st.session_state.get("access_token"):
-        return True
-    
+
     with st.sidebar:
+        if st.session_state.get("authorized", False) and st.session_state.get("access_token"):
+            st.header("🔐 Session")
+            st.caption(f"User: {st.session_state.get('user_email', 'unknown')}")
+
+            pending = has_pending_log_decisions(st.session_state)
+            if pending:
+                phases = ", ".join(pending_phase_labels(st.session_state))
+                st.warning(
+                    "Choose Log Activity or Skip Log before logout. "
+                    f"Pending phase(s): {phases}"
+                )
+
+            if st.button("Logout", disabled=pending, key="logout_button"):
+                st.session_state.clear()
+                st.rerun()
+
+            return True
+
         st.header("🔐 Login")
         
         # =============================================================================

@@ -14,6 +14,7 @@ from src.api.file_operations import (
     find_qc_csv,
     list_pdfs_in_subfolder,
 )
+from src.ui.activity_logging import all_activity_state_keys, has_pending_log_decisions, pending_phase_labels
 
 _PARTICIPANTS_FILE = pathlib.Path(settings.PARTICIPANTS_FILE)
 _SELECT_PLACEHOLDER = "Select participant..."
@@ -66,15 +67,34 @@ def _clear_file_state():
     # Per-phase namespaced keys (e.g. original_df_Baseline, data_editor_version_Overnight)
     phased_keys = [
         k for k in list(st.session_state.keys())
-        if any(k.startswith(prefix) for prefix in _PHASED_KEYS_PREFIX)
+        if isinstance(k, str) and any(k.startswith(prefix) for prefix in _PHASED_KEYS_PREFIX)
     ]
     for k in phased_keys:
         st.session_state.pop(k, None)
+
+    for k in all_activity_state_keys(st.session_state):
+        st.session_state.pop(k, None)
+
+
+def _clear_file_state_if_allowed():
+    """Prevent context clearing while required log/skip decisions are pending."""
+    if has_pending_log_decisions(st.session_state):
+        phases = ", ".join(pending_phase_labels(st.session_state))
+        st.session_state["log_guard_message"] = (
+            "Choose Log Activity or Skip Log before leaving this participant. "
+            f"Pending phase(s): {phases}"
+        )
+        return
+    _clear_file_state()
 
 
 def render_search_interface():
     """Render file search interface. Returns (success, search_performed)."""
     st.header("🔍 Find Participant Data")
+
+    if st.session_state.get("log_guard_message"):
+        st.error(st.session_state["log_guard_message"])
+        st.session_state.pop("log_guard_message", None)
 
     # ---------- YAML missing warning ----------
     if not _PARTICIPANTS_FILE.exists():
@@ -88,7 +108,7 @@ def render_search_interface():
 
     with col1:
         device_options = ["Select Device Type..."] + settings.SUPPORTED_DEVICES
-        selected_device = st.selectbox("Device Type", device_options, on_change=_clear_file_state)
+        selected_device = st.selectbox("Device Type", device_options, on_change=_clear_file_state_if_allowed)
 
     if selected_device == "Select Device Type...":
         st.info("👆 Please select a device type to begin searching for participant data.")
@@ -112,7 +132,7 @@ def render_search_interface():
             "Participant ID",
             pid_options,
             key=f"pid_select_{selected_device}",
-            on_change=_clear_file_state,
+            on_change=_clear_file_state_if_allowed,
         )
 
     # Free-text fallback when custom option chosen
@@ -184,6 +204,14 @@ def render_search_interface():
 
     # ---------- Search ----------
     if search_button and participant_id:
+        if has_pending_log_decisions(st.session_state):
+            phases = ", ".join(pending_phase_labels(st.session_state))
+            st.error(
+                "❌ Cannot switch context yet. Choose Log Activity or Skip Log first for: "
+                f"{phases}"
+            )
+            return False, True
+
         _clear_file_state()
         with st.spinner("Searching for files..."):
             access_token = st.session_state.get("access_token")

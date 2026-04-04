@@ -2,7 +2,16 @@
 
 import streamlit as st
 from config import settings
-from src.api.file_operations import download_csv, upload_csv
+from src.api.file_operations import download_csv, log_to_sharepoint, upload_csv
+from src.ui.activity_logging import (
+    DECISION_LOGGED,
+    DECISION_SKIPPED,
+    comment_key,
+    decision_key,
+    last_entry_key,
+    modified_key,
+    pending_phase_labels,
+)
 
 
 def _df_with_delete_col(df):
@@ -93,6 +102,7 @@ def _render_single_phase_viewer(
         access_token=access_token,
         username=username,
         state_suffix="",          # no suffix → uses original_df, current_df, etc.
+        phase_label=phase or "NoPhase",
     )
 
 
@@ -178,6 +188,7 @@ def _render_multi_phase_viewer(phase_files, access_token, username, participant_
                 access_token=access_token,
                 username=username,
                 state_suffix=f"_{pf['phase']}",   # e.g. _Baseline, _Overnight
+                phase_label=pf["phase"],
             )
 
 
@@ -185,7 +196,99 @@ def _render_multi_phase_viewer(phase_files, access_token, username, participant_
 # Shared CSV editor (used by both single and multi-phase viewers)
 # =============================================================================
 
-def _render_csv_editor(csv_file, folder_path, access_token, username, state_suffix):
+def _render_activity_log_panel(access_token, phase_label, panel_key_suffix):
+    """Render per-phase activity logging controls and persist explicit decision."""
+    participant_id = st.session_state.get("participant_id")
+    monitor = st.session_state.get("device")
+    user_email = st.session_state.get("user_email")
+
+    if not participant_id or not monitor or not user_email:
+        st.warning("⚠️ Missing participant or user context. Activity logging is unavailable.")
+        return
+
+    d_key = decision_key(participant_id, monitor, phase_label)
+    c_key = comment_key(participant_id, monitor, phase_label)
+    m_key = modified_key(participant_id, monitor, phase_label)
+    l_key = last_entry_key(participant_id, monitor, phase_label)
+
+    st.subheader("📝 Log Activity")
+    st.caption(f"Phase: {phase_label}")
+
+    st.text_area(
+        "Comments",
+        key=c_key,
+        height=100,
+        placeholder="Describe your QC findings or changes...",
+    )
+    st.checkbox("Data Modified", key=m_key)
+
+    col_log, col_skip, col_clear = st.columns(3)
+    with col_log:
+        log_clicked = st.button(
+            "Log Activity",
+            type="primary",
+            key=f"log_activity_{panel_key_suffix}",
+        )
+    with col_skip:
+        skip_clicked = st.button(
+            "Skip Log",
+            key=f"skip_log_{panel_key_suffix}",
+            help="Choose this when you explicitly do not want to create a log row.",
+        )
+    with col_clear:
+        clear_clicked = st.button("Clear", key=f"clear_log_{panel_key_suffix}")
+
+    if clear_clicked:
+        st.session_state[c_key] = ""
+        st.session_state[m_key] = False
+        st.info("Draft comment cleared.")
+
+    if skip_clicked:
+        st.session_state[d_key] = DECISION_SKIPPED
+        st.session_state[c_key] = ""
+        st.session_state[m_key] = False
+        st.session_state.pop(l_key, None)
+        st.warning(f"Logging skipped for {phase_label}. You can still submit a log before leaving.")
+
+    if log_clicked:
+        comments = st.session_state.get(c_key, "").strip()
+        qc_outcome = "Data Modified" if st.session_state.get(m_key, False) else "Data Not Modified"
+        payload = {
+            "User_email": user_email,
+            "Monitor": monitor,
+            "Participant_ID": participant_id,
+            "Study_Phase": phase_label,
+            "QC_Outcome": qc_outcome,
+            "Comments": comments,
+        }
+
+        with st.spinner("Submitting activity log..."):
+            result = log_to_sharepoint(access_token, payload)
+
+        if result.get("success"):
+            st.session_state[d_key] = DECISION_LOGGED
+            st.session_state[l_key] = {
+                **payload,
+                "timestamp_QC'ed": result.get("timestamp"),
+            }
+            st.session_state[c_key] = ""
+            st.session_state[m_key] = False
+            st.success("✅ Activity logged successfully.")
+        else:
+            st.error(f"❌ Log failed: {result.get('error', 'Unknown error')}")
+
+    last_entry = st.session_state.get(l_key)
+    if last_entry:
+        st.caption(
+            "Last local submission: "
+            f"{last_entry.get('timestamp_QC\'ed', '')} | "
+            f"{last_entry.get('QC_Outcome', '')}"
+        )
+        if st.button("Delete local submission preview", key=f"delete_preview_{panel_key_suffix}"):
+            st.session_state.pop(l_key, None)
+
+
+def _render_csv_editor(csv_file, folder_path, access_token, username, state_suffix, phase_label):
     """
     Render an editable CSV data_editor block.
 
@@ -301,6 +404,13 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                 else:
                     st.error("❌ Failed to save. Please try again.")
 
+    st.markdown("---")
+    _render_activity_log_panel(
+        access_token=access_token,
+        phase_label=phase_label,
+        panel_key_suffix=(phase_label or "NoPhase").replace(" ", "_").replace("/", "_"),
+    )
+
 
 # =============================================================================
 # Entry point
@@ -317,6 +427,15 @@ def render_file_viewer():
     device = st.session_state["device"]
     access_token = st.session_state.get("access_token")
     username = st.session_state.get("username", "unknown_user")
+
+    pending_phases = pending_phase_labels(st.session_state)
+    if pending_phases:
+        st.warning(
+            "⚠️ Before leaving this participant, choose Log Activity or Skip Log for: "
+            + ", ".join(pending_phases)
+        )
+    else:
+        st.success("✅ Activity logging decision completed for all visible phases.")
 
     # ------------------------------------------------------------------
     # Multi-phase path: Actical / Philips Health Band

@@ -6,8 +6,10 @@ import streamlit as st
 import pandas as pd
 import requests
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import quote
+from openpyxl import load_workbook
+from openpyxl.utils.cell import range_boundaries, get_column_letter
 from config import settings
 
 
@@ -290,3 +292,115 @@ def upload_csv(access_token, folder_path, base_filename, dataframe, username="un
     except Exception as e:
         st.error(f"Error uploading file: {e}")
         return None
+
+
+def _validate_activity_payload(log_row):
+    """Validate required activity-log values before writing to Excel."""
+    missing = []
+    for key in settings.ACTIVITY_LOG_HEADERS[:-1]:  # timestamp is generated server-side
+        value = log_row.get(key)
+        if value is None or str(value).strip() == "":
+            missing.append(key)
+    if missing:
+        return False, f"Missing required fields: {', '.join(missing)}"
+    return True, ""
+
+
+def log_to_sharepoint(access_token, log_row, root_path=None):
+    """Append one activity row into the configured SharePoint Excel table.
+
+    Args:
+        access_token: Microsoft Graph access token.
+        log_row: Dict containing activity values for ACTIVITY_LOG_HEADERS except timestamp.
+        root_path: Optional SharePoint root path, defaults to QC root.
+
+    Returns:
+        dict with keys: success (bool), error (str), timestamp (str).
+    """
+    if root_path is None:
+        root_path = settings.QC_ROOT_FOLDER_PATH
+
+    is_valid, validation_error = _validate_activity_payload(log_row)
+    if not is_valid:
+        return {"success": False, "error": validation_error}
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    row_values = {**log_row, "timestamp_QC'ed": timestamp}
+
+    try:
+        drive_id = get_drive_id(access_token)
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        workbook_path = f"{root_path}/{settings.ACTIVITY_LOG_WORKBOOK}"
+        encoded_path = quote(workbook_path, safe="/")
+        content_url = f"{settings.GRAPH_API_ENDPOINT}/drives/{drive_id}/root:/{encoded_path}:/content"
+
+        # Download current workbook bytes from SharePoint.
+        get_resp = requests.get(content_url, headers=headers)
+        if get_resp.status_code == 404:
+            return {
+                "success": False,
+                "error": f"Workbook not found at {workbook_path}",
+            }
+        get_resp.raise_for_status()
+
+        workbook = load_workbook(io.BytesIO(get_resp.content))
+        sheet_name = settings.ACTIVITY_LOG_SHEET
+        table_name = settings.ACTIVITY_LOG_TABLE
+
+        if sheet_name not in workbook.sheetnames:
+            return {
+                "success": False,
+                "error": f"Worksheet '{sheet_name}' not found in workbook",
+            }
+
+        worksheet = workbook[sheet_name]
+        table = worksheet.tables.get(table_name)
+        if not table:
+            return {
+                "success": False,
+                "error": f"Table '{table_name}' not found in worksheet '{sheet_name}'",
+            }
+
+        min_col, min_row, max_col, max_row = range_boundaries(table.ref)
+        expected_headers = settings.ACTIVITY_LOG_HEADERS
+        table_headers = [worksheet.cell(row=min_row, column=col).value for col in range(min_col, max_col + 1)]
+        if table_headers != expected_headers:
+            return {
+                "success": False,
+                "error": (
+                    "Header mismatch in activity log table. "
+                    f"Expected {expected_headers} but found {table_headers}"
+                ),
+            }
+
+        next_row = max_row + 1
+        for col_idx, header in enumerate(expected_headers, start=min_col):
+            worksheet.cell(row=next_row, column=col_idx, value=row_values[header])
+
+        start_col_letter = get_column_letter(min_col)
+        end_col_letter = get_column_letter(max_col)
+        table.ref = f"{start_col_letter}{min_row}:{end_col_letter}{next_row}"
+
+        out_buffer = io.BytesIO()
+        workbook.save(out_buffer)
+        out_buffer.seek(0)
+
+        put_resp = requests.put(
+            content_url,
+            headers={
+                **headers,
+                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            },
+            data=out_buffer.getvalue(),
+        )
+        if put_resp.status_code in {409, 423}:
+            return {
+                "success": False,
+                "error": "Workbook is locked or has a write conflict. Please retry.",
+            }
+        put_resp.raise_for_status()
+
+        return {"success": True, "timestamp": timestamp}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to log activity: {e}"}
