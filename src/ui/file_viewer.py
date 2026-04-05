@@ -299,9 +299,19 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
     deselected_signatures = previously_selected_signatures - selected_signatures
     if deselected_signatures:
         latest_current_df = st.session_state.get(key_current)
+        # key_copy_selection holds full-summary column sigs, but current_df only
+        # has edit-CSV columns (the intended subset). Project deselected rows to
+        # edit columns so signatures match what _drop_added_rows_by_signatures finds.
+        edit_clean = _df_without_helper_cols(latest_current_df) if latest_current_df is not None else None
+        if edit_clean is not None and not edit_clean.empty:
+            deselected_mask = summary_signatures.isin(deselected_signatures)
+            projected = _align_rows_to_columns(df[deselected_mask], edit_clean.columns)
+            drop_sigs = set(_row_signatures(projected).tolist())
+        else:
+            drop_sigs = deselected_signatures
         updated_current_df, removed_rows = _drop_added_rows_by_signatures(
             latest_current_df,
-            deselected_signatures,
+            drop_sigs,
         )
         if removed_rows > 0:
             st.session_state[key_current] = updated_current_df
