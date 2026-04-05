@@ -255,74 +255,45 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
         st.success("All summary records are already present in Edit Data Files.")
         return
 
-    try:
-        from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
-    except ImportError:
-        st.error(
-            "Install `streamlit-aggrid` to enable inline checkbox selection with row highlighting "
-            "in Full Summary Data."
-        )
-        return
-
     previously_selected_signatures = set(st.session_state.get(key_copy_selection, []))
     previously_selected_signatures &= highlight_signatures
 
-    grid_df = df.copy()
-    grid_df["__row_sig"] = summary_signatures
-    grid_df["__highlight"] = [bool(v) for v in highlight_mask]
-    pre_selected_rows = [
-        idx for idx, sig in enumerate(summary_signatures.tolist()) if sig in previously_selected_signatures
-    ]
+    # --- Full table (read-only, yellow highlights for missing rows) ---
+    def _highlight_missing(row):
+        sig = summary_signatures.iloc[row.name]
+        color = "#fff6cc" if sig in highlight_signatures else ""
+        return [f"background-color: {color}" if color else "" for _ in row]
 
-    st.markdown(
-        "<style>.ggir-qc-missing-row { background-color: #fff6cc !important; }</style>",
-        unsafe_allow_html=True,
+    st.dataframe(
+        df.style.apply(_highlight_missing, axis=1),
+        use_container_width=True,
+        height=300,
+        hide_index=True,
     )
 
-    gb = GridOptionsBuilder.from_dataframe(grid_df)
-    gb.configure_default_column(editable=False, sortable=True, filter=True, resizable=True)
-    if len(df.columns) > 0:
-        gb.configure_column(
-            df.columns[0],
-            checkboxSelection=True,
-        )
-    gb.configure_column("__row_sig", hide=True)
-    gb.configure_column("__highlight", hide=True)
-    gb.configure_selection(
-        "multiple",
-        use_checkbox=True,
-        pre_selected_rows=pre_selected_rows,
-        rowMultiSelectWithClick=True,
-    )
-    gb.configure_grid_options(
-        rowClassRules={"ggir-qc-missing-row": "data.__highlight === true"},
-        isRowSelectable=JsCode(
-            "function(node) { return !!(node.data && node.data.__highlight); }"
-        ),
+    # --- Missing-rows selector (only highlighted rows, with checkboxes) ---
+    missing_idx = highlight_mask[highlight_mask].index
+    missing_df = df.loc[missing_idx].copy().reset_index(drop=True)
+    missing_sigs_list = summary_signatures[highlight_mask].reset_index(drop=True).tolist()
+
+    select_vals = [sig in previously_selected_signatures for sig in missing_sigs_list]
+    selector_df = missing_df.copy()
+    selector_df.insert(0, "Select", select_vals)
+
+    st.caption(f"**{int(highlight_mask.sum())} missing row(s) — check to copy into Edit Data Files:**")
+    edited = st.data_editor(
+        selector_df,
+        column_config={"Select": st.column_config.CheckboxColumn("Select", default=False)},
+        disabled=[c for c in selector_df.columns if c != "Select"],
+        use_container_width=True,
+        hide_index=True,
+        height=min(250, 36 * (len(selector_df) + 1)),
+        key=f"missing_rows_editor{edit_state_suffix}",
     )
 
-    grid_options = gb.build()
-
-    grid_response = AgGrid(
-        grid_df,
-        gridOptions=grid_options,
-        update_mode=GridUpdateMode.SELECTION_CHANGED,
-        fit_columns_on_grid_load=False,
-        allow_unsafe_jscode=True,
-        height=360,
-        key=f"full_summary_grid{edit_state_suffix}",
+    selected_signatures = set(
+        sig for sig, sel in zip(missing_sigs_list, edited["Select"].tolist()) if sel
     )
-
-    selected_rows = grid_response.get("selected_rows", [])
-    if isinstance(selected_rows, pd.DataFrame):
-        selected_sig_list = selected_rows.get("__row_sig", pd.Series([], dtype="object")).dropna().tolist()
-    else:
-        selected_sig_list = [
-            row.get("__row_sig") for row in (selected_rows or []) if row.get("__row_sig") is not None
-        ]
-
-    selected_signatures = set(sig for sig in selected_sig_list if sig in highlight_signatures)
-    ignored_count = len(selected_sig_list) - len(selected_signatures)
     st.session_state[key_copy_selection] = sorted(selected_signatures)
 
     deselected_signatures = previously_selected_signatures - selected_signatures
@@ -341,9 +312,6 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
                 "text": f"Removed {removed_rows} unchecked added row(s) from pending edit changes.",
             }
             st.rerun()
-
-    if ignored_count > 0:
-        st.info("Only highlighted rows are eligible for copy. Non-highlighted selections were ignored.")
 
     selected_count = len(selected_signatures)
     st.caption(f"Selected: {selected_count} of {int(highlight_mask.sum())} highlighted row(s)")
