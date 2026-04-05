@@ -60,6 +60,22 @@ def _normalize_cell(value):
         return "__GGIR_NULL__"
     if isinstance(value, pd.Timestamp):
         return value.isoformat()
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if cleaned == "":
+            return ""
+        numeric = pd.to_numeric(cleaned, errors="coerce")
+        if not pd.isna(numeric):
+            numeric_float = float(numeric)
+            if numeric_float.is_integer():
+                return f"__NUM__{int(numeric_float)}"
+            return f"__NUM__{numeric_float:.12g}"
+        return cleaned
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        numeric_float = float(value)
+        if numeric_float.is_integer():
+            return f"__NUM__{int(numeric_float)}"
+        return f"__NUM__{numeric_float:.12g}"
     return value
 
 
@@ -86,12 +102,19 @@ def _missing_summary_mask(summary_df, edit_df):
     if summary_norm.empty:
         return pd.Series([], dtype="bool")
 
-    if set(summary_norm.columns) != set(edit_norm.columns):
+    # Compare using Edit columns as canonical keys (Edit is the intended subset).
+    compare_cols = list(edit_norm.columns)
+    if not compare_cols:
+        return pd.Series([False] * len(summary_norm), index=summary_norm.index)
+
+    if any(col not in summary_norm.columns for col in compare_cols):
         return pd.Series([True] * len(summary_norm), index=summary_norm.index)
 
-    # Set-difference semantics (row uniqueness is guaranteed per user requirement).
-    summary_signatures = _row_signatures(summary_norm)
-    edit_signature_set = set(_row_signatures(edit_norm).tolist())
+    summary_cmp = summary_norm.loc[:, compare_cols]
+    edit_cmp = edit_norm.loc[:, compare_cols]
+
+    summary_signatures = _row_signatures(summary_cmp)
+    edit_signature_set = set(_row_signatures(edit_cmp).tolist())
     return ~summary_signatures.isin(edit_signature_set)
 
 
@@ -179,7 +202,6 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
         st.success("All summary records are already present in Edit Data Files.")
         return
 
-    st.caption("Select missing rows to copy into Edit Data Files")
     selector_df = missing_df.copy()
     selector_df.insert(0, "_copy", False)
     selected_rows = st.data_editor(
@@ -201,7 +223,7 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
     st.caption(f"Selected: {selected_count} of {len(missing_df)} missing row(s)")
 
     copy_clicked = st.button(
-        "Copy selected to Edit Data Files",
+        "Copy to Edit Data Files",
         key=f"copy_missing_rows{edit_state_suffix}",
         disabled=selected_count == 0,
     )
@@ -285,7 +307,7 @@ def _render_single_phase_viewer(
     st.markdown("---")
 
     # Read-only QC full CSV
-    st.subheader("📋 Full Summary Data (Read-Only)")
+    st.subheader("📋 Full Summary Data")
     _ensure_edit_state_loaded(csv_file=csv_file, access_token=access_token, state_suffix="")
     _render_readonly_csv(
         qc_csv_file=st.session_state.get("qc_csv_file"),
@@ -351,7 +373,7 @@ def _render_multi_phase_viewer(phase_files, access_token, username, participant_
     # ------------------------------------------------------------------
     # Read-only QC full CSVs: one tab per phase
     # ------------------------------------------------------------------
-    st.subheader("📋 Full Summary Data (Read-Only)")
+    st.subheader("📋 Full Summary Data")
 
     qc_phases = [pf for pf in phase_files if pf.get("qc_csv_file")]
     if not qc_phases:
@@ -631,39 +653,32 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
     data_changed = st.session_state.get(key_force_dirty, False) or not edited_df.equals(st.session_state[key_current])
     editor_status = st.session_state.pop(key_editor_status, None)
 
-    # Red-highlighted preview of rows marked for deletion
-    if rows_to_delete > 0:
-        st.warning(
-            f"🗑️ **{rows_to_delete} row(s) marked for deletion** — "
-            "shown in red below. They will be removed when you save."
-        )
+    if rows_to_delete > 0 or rows_added > 0:
+        st.markdown("**Preview Pending Modifications**")
+        st.caption(f"Add: {rows_added} | Delete: {rows_to_delete}")
 
-        def _highlight_deleted(row):
-            if row["_to_delete"]:
-                return ["background-color: #ffcccc; color: #8b0000; text-decoration: line-through"] * len(row)
-            return [""] * len(row)
+        preview_df = edited_df[(edited_df["_to_delete"]) | (edited_df["_added"])].copy()
 
-        st.dataframe(
-            edited_df.style.apply(_highlight_deleted, axis=1),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    if rows_added > 0:
-        st.info(
-            f"➕ **{rows_added} row(s) copied from Full Summary Data** — "
-            "shown in green below. Save with data modifications to persist them."
-        )
-
-        def _highlight_added(row):
-            if row["_added"] and not row["_to_delete"]:
-                return ["background-color: #dff6dd; color: #0b6e4f"] * len(row)
+        def _action_label(row):
             if row["_added"] and row["_to_delete"]:
-                return ["background-color: #ffe8cc; color: #8a4b08"] * len(row)
-            return [""] * len(row)
+                return "Add+Delete"
+            if row["_added"]:
+                return "Add"
+            return "Delete"
+
+        preview_df.insert(0, "Action", preview_df.apply(_action_label, axis=1))
+        preview_df = preview_df.drop(columns=["_to_delete", "_added"], errors="ignore")
+
+        def _highlight_preview(row):
+            action = row["Action"]
+            if action == "Add":
+                return ["background-color: #dff6dd; color: #0b6e4f"] * len(row)
+            if action == "Delete":
+                return ["background-color: #ffcccc; color: #8b0000; text-decoration: line-through"] * len(row)
+            return ["background-color: #ffe8cc; color: #8a4b08"] * len(row)
 
         st.dataframe(
-            edited_df.style.apply(_highlight_added, axis=1),
+            preview_df.style.apply(_highlight_preview, axis=1),
             use_container_width=True,
             hide_index=True,
         )

@@ -104,4 +104,22 @@ def test_missing_summary_mask_handles_mixed_dtypes_without_merge_error():
     )
 
     mask = _missing_summary_mask(summary_df, edit_df)
-    assert mask.tolist() == [True, False]
+    assert mask.tolist() == [False, False]
+
+
+def test_missing_summary_mask_uses_edit_columns_as_canonical_subset():
+    summary_df = pd.DataFrame(
+        [
+            {"A": 1, "B": "x", "extra": "foo"},
+            {"A": 2, "B": "y", "extra": "bar"},
+        ]
+    )
+    edit_df = pd.DataFrame(
+        [
+            {"A": 1, "B": "x"},
+            {"A": 2, "B": "y"},
+        ]
+    )
+
+    mask = _missing_summary_mask(summary_df, edit_df)
+    assert mask.tolist() == [False, False]
