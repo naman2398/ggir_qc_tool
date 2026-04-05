@@ -885,6 +885,7 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                 st.session_state[key_force_dirty] = False
                 st.session_state[key_copy_selection] = []
                 st.session_state[key_pending_missing] = []
+                st.session_state.pop(f"missing_rows_editor{state_suffix}", None)
                 st.session_state[key_editor_status] = {
                     "level": "success",
                     "text": "✅ Saved changes undone.",
