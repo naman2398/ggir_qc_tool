@@ -274,23 +274,13 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
         idx for idx, sig in enumerate(summary_signatures.tolist()) if sig in previously_selected_signatures
     ]
 
-    _highlight_cell_style = JsCode("""
-        function(params) {
-            if (params.data && params.data.__highlight) {
-                return {'background-color': '#fff6cc'};
-            }
-            return {};
-        }
-    """)
+    st.markdown(
+        "<style>.ggir-qc-missing-row { background-color: #fff6cc !important; }</style>",
+        unsafe_allow_html=True,
+    )
 
     gb = GridOptionsBuilder.from_dataframe(grid_df)
-    gb.configure_default_column(
-        editable=False,
-        sortable=True,
-        filter=True,
-        resizable=True,
-        cellStyle=_highlight_cell_style,
-    )
+    gb.configure_default_column(editable=False, sortable=True, filter=True, resizable=True)
     if len(df.columns) > 0:
         gb.configure_column(
             df.columns[0],
@@ -305,6 +295,7 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
         rowMultiSelectWithClick=True,
     )
     gb.configure_grid_options(
+        rowClassRules={"ggir-qc-missing-row": "data.__highlight === true"},
         isRowSelectable=JsCode(
             "function(node) { return !!(node.data && node.data.__highlight); }"
         ),
