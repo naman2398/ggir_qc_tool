@@ -157,6 +157,16 @@ def _summary_to_edit_suffix(state_suffix):
     return state_suffix
 
 
+def _pending_missing_key(state_suffix):
+    """Session-state key for summary rows kept highlighted until modified save."""
+    return f"pending_missing_sigs{state_suffix}"
+
+
+def _copy_selection_key(state_suffix):
+    """Session-state key for currently selected summary row signatures."""
+    return f"summary_copy_selection{state_suffix}"
+
+
 def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
     """Render a read-only view of the full QC summary CSV."""
     key_qc_df = f"qc_df{state_suffix}"
@@ -165,6 +175,8 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
     key_version = f"data_editor_version{edit_state_suffix}"
     key_editor_status = f"editor_status{edit_state_suffix}"
     key_force_dirty = f"force_dirty{edit_state_suffix}"
+    key_pending_missing = _pending_missing_key(edit_state_suffix)
+    key_copy_selection = _copy_selection_key(edit_state_suffix)
 
     if not qc_csv_file:
         st.info(f"ℹ️ {settings.TARGET_FILES['csv_full']} not found at results/QC/")
@@ -186,39 +198,45 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
 
     df = st.session_state[key_qc_df]
     current_df = st.session_state.get(key_current)
+    summary_signatures = _row_signatures(df)
+    all_summary_signatures = set(summary_signatures.tolist())
 
     if current_df is not None:
         missing_mask = _missing_summary_mask(df, current_df)
     else:
         missing_mask = pd.Series([False] * len(df), index=df.index)
 
-    missing_df = df[missing_mask].reset_index(drop=True)
+    missing_signatures = set(summary_signatures[missing_mask].tolist())
+    pending_signatures = set(st.session_state.get(key_pending_missing, []))
+    pending_signatures &= all_summary_signatures
+    highlight_signatures = missing_signatures | pending_signatures
+    highlight_mask = summary_signatures.isin(highlight_signatures)
+    st.session_state[key_pending_missing] = sorted(pending_signatures)
+
     st.caption(
         f"📊 {len(df)} rows × {len(df.columns)} columns | "
-        f"Missing from edit: {len(missing_df)}"
-    )
-
-    def _highlight_missing(row):
-        if bool(missing_mask.loc[row.name]):
-            return ["background-color: #fff9c4"] * len(row)
-        return [""] * len(row)
-
-    st.dataframe(
-        df.style.apply(_highlight_missing, axis=1),
-        use_container_width=True,
-        hide_index=True,
+        f"Missing from edit: {int(missing_mask.sum())} | "
+        f"Highlighted for add/save: {int(highlight_mask.sum())}"
     )
 
     if current_df is None:
         st.info("Load edit data to enable missing-row copy actions.")
         return
 
-    if missing_df.empty:
+    if not highlight_signatures:
         st.success("All summary records are already present in Edit Data Files.")
         return
 
-    selector_df = missing_df.copy()
+    selector_df = df.copy()
+    selector_df.insert(0, "Missing", "")
     selector_df.insert(0, "_copy", False)
+    selector_df.loc[highlight_mask, "Missing"] = "🟨 Missing"
+
+    selected_signatures = set(st.session_state.get(key_copy_selection, []))
+    selected_signatures &= highlight_signatures
+    selected_mask = summary_signatures.isin(selected_signatures)
+    selector_df.loc[selected_mask, "_copy"] = True
+
     selected_rows = st.data_editor(
         selector_df,
         use_container_width=True,
@@ -230,12 +248,26 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
                 help="Select rows to copy into Edit Data Files.",
                 default=False,
             ),
+            "Missing": st.column_config.TextColumn(
+                "Missing",
+                help="Rows highlighted as missing and pending final save.",
+            ),
         },
-        disabled=list(selector_df.columns[1:]),
-        key=f"missing_copy_editor{edit_state_suffix}",
+        disabled=["Missing"] + list(df.columns),
+        key=f"full_summary_editor{edit_state_suffix}",
     )
-    selected_count = int(selected_rows["_copy"].sum())
-    st.caption(f"Selected: {selected_count} of {len(missing_df)} missing row(s)")
+
+    selected_raw_mask = selected_rows["_copy"].astype(bool)
+    effective_selected_mask = selected_raw_mask & highlight_mask
+    ignored_count = int((selected_raw_mask & ~highlight_mask).sum())
+    selected_signatures = set(summary_signatures[effective_selected_mask].tolist())
+    st.session_state[key_copy_selection] = sorted(selected_signatures)
+
+    if ignored_count > 0:
+        st.info("Only highlighted rows are eligible for copy. Non-highlighted selections were ignored.")
+
+    selected_count = len(selected_signatures)
+    st.caption(f"Selected: {selected_count} of {int(highlight_mask.sum())} highlighted row(s)")
 
     copy_clicked = st.button(
         "Copy to Edit Data Files",
@@ -244,14 +276,22 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
     )
 
     if copy_clicked:
-        selected_df = selected_rows[selected_rows["_copy"]].drop(columns=["_copy"]).reset_index(drop=True)
+        selected_df = df[summary_signatures.isin(selected_signatures)].reset_index(drop=True)
         latest_current_df = st.session_state.get(key_current)
+        if latest_current_df is None:
+            st.session_state[key_editor_status] = {
+                "level": "warning",
+                "text": "Edit Data Files are not loaded yet. Please refresh and try again.",
+            }
+            st.rerun()
+
         latest_missing_mask = _missing_summary_mask(df, latest_current_df)
         latest_missing_df = df[latest_missing_mask].reset_index(drop=True)
         latest_missing_signatures = set(_row_signatures(latest_missing_df).tolist())
 
         selected_signatures = _row_signatures(selected_df)
         rows_to_copy = selected_df[selected_signatures.isin(latest_missing_signatures)].reset_index(drop=True)
+        copied_signatures = set(_row_signatures(rows_to_copy).tolist())
 
         if rows_to_copy.empty:
             st.session_state[key_editor_status] = {
@@ -278,6 +318,13 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
         monitor = st.session_state.get("device")
         if participant_id and monitor:
             st.session_state[modified_key(participant_id, monitor, phase_label)] = True
+
+        st.session_state[key_pending_missing] = sorted(
+            (set(st.session_state.get(key_pending_missing, [])) | copied_signatures) & all_summary_signatures
+        )
+        st.session_state[key_copy_selection] = sorted(
+            set(st.session_state.get(key_copy_selection, [])) - copied_signatures
+        )
 
         st.session_state[key_editor_status] = {
             "level": "success",
@@ -601,6 +648,8 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
     key_editor_status = f"editor_status{state_suffix}"
     key_save_state_history = f"save_state_history{state_suffix}"
     key_force_dirty = f"force_dirty{state_suffix}"
+    key_pending_missing = _pending_missing_key(state_suffix)
+    key_copy_selection = _copy_selection_key(state_suffix)
     participant_id = st.session_state.get("participant_id")
     monitor = st.session_state.get("device")
     tracked_saves_key = saved_files_key(participant_id, monitor, phase_label)
@@ -819,6 +868,8 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                     )
                     st.session_state[key_version] = version + 1
                     st.session_state[key_force_dirty] = False
+                    st.session_state.pop(key_pending_missing, None)
+                    st.session_state.pop(key_copy_selection, None)
                     st.session_state[key_editor_status] = {
                         "level": "success",
                         "text": "✅ Save done with data modifications",
