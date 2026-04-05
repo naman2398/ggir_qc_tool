@@ -269,19 +269,32 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
 
     grid_df = df.copy()
     grid_df["__row_sig"] = summary_signatures
-    grid_df["__highlight"] = highlight_mask.astype(bool)
+    grid_df["__highlight"] = [bool(v) for v in highlight_mask]
     pre_selected_rows = [
         idx for idx, sig in enumerate(summary_signatures.tolist()) if sig in previously_selected_signatures
     ]
 
+    _highlight_cell_style = JsCode("""
+        function(params) {
+            if (params.data && params.data.__highlight) {
+                return {'background-color': '#fff6cc'};
+            }
+            return {};
+        }
+    """)
+
     gb = GridOptionsBuilder.from_dataframe(grid_df)
-    gb.configure_default_column(editable=False, sortable=True, filter=True, resizable=True)
+    gb.configure_default_column(
+        editable=False,
+        sortable=True,
+        filter=True,
+        resizable=True,
+        cellStyle=_highlight_cell_style,
+    )
     if len(df.columns) > 0:
         gb.configure_column(
             df.columns[0],
             checkboxSelection=True,
-            headerCheckboxSelection=True,
-            headerCheckboxSelectionFilteredOnly=True,
         )
     gb.configure_column("__row_sig", hide=True)
     gb.configure_column("__highlight", hide=True)
@@ -294,16 +307,6 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
     gb.configure_grid_options(
         isRowSelectable=JsCode(
             "function(node) { return !!(node.data && node.data.__highlight); }"
-        ),
-        getRowStyle=JsCode(
-            """
-            function(params) {
-                if (params.data && params.data.__highlight) {
-                    return {backgroundColor: '#fff6cc'};
-                }
-                return null;
-            }
-            """
         ),
     )
 
