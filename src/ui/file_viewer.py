@@ -1,5 +1,6 @@
 """File Viewer UI Component"""
 
+from collections import Counter
 import json
 
 import pandas as pd
@@ -107,6 +108,33 @@ def _build_previous_state(original_df, editor_df, last_saved, last_saved_url):
         "last_saved": last_saved,
         "last_saved_url": last_saved_url,
     }
+
+
+def _drop_added_rows_by_signatures(editor_df, signatures):
+    """Drop unsaved added rows matching signatures (one row removed per signature occurrence)."""
+    if editor_df is None or editor_df.empty or not signatures:
+        return editor_df, 0
+    if "_added" not in editor_df.columns:
+        return editor_df, 0
+
+    data_only = _df_without_helper_cols(editor_df)
+    row_sigs = _row_signatures(data_only)
+    target_counts = Counter(signatures)
+    added_mask = editor_df["_added"].fillna(False).astype(bool)
+
+    drop_indices = []
+    for idx, sig in enumerate(row_sigs.tolist()):
+        if not added_mask.iloc[idx]:
+            continue
+        if target_counts.get(sig, 0) > 0:
+            drop_indices.append(idx)
+            target_counts[sig] -= 1
+
+    if not drop_indices:
+        return editor_df, 0
+
+    updated_df = editor_df.drop(index=drop_indices).reset_index(drop=True)
+    return updated_df, len(drop_indices)
 
 
 def _missing_summary_mask(summary_df, edit_df):
@@ -227,41 +255,96 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
         st.success("All summary records are already present in Edit Data Files.")
         return
 
-    selector_df = df.copy()
-    selector_df.insert(0, "Missing", "")
-    selector_df.insert(0, "_copy", False)
-    selector_df.loc[highlight_mask, "Missing"] = "🟨 Missing"
+    try:
+        from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
+    except ImportError:
+        st.error(
+            "Install `streamlit-aggrid` to enable inline checkbox selection with row highlighting "
+            "in Full Summary Data."
+        )
+        return
 
-    selected_signatures = set(st.session_state.get(key_copy_selection, []))
-    selected_signatures &= highlight_signatures
-    selected_mask = summary_signatures.isin(selected_signatures)
-    selector_df.loc[selected_mask, "_copy"] = True
+    previously_selected_signatures = set(st.session_state.get(key_copy_selection, []))
+    previously_selected_signatures &= highlight_signatures
 
-    selected_rows = st.data_editor(
-        selector_df,
-        use_container_width=True,
-        num_rows="fixed",
-        hide_index=True,
-        column_config={
-            "_copy": st.column_config.CheckboxColumn(
-                "Copy",
-                help="Select rows to copy into Edit Data Files.",
-                default=False,
-            ),
-            "Missing": st.column_config.TextColumn(
-                "Missing",
-                help="Rows highlighted as missing and pending final save.",
-            ),
-        },
-        disabled=["Missing"] + list(df.columns),
-        key=f"full_summary_editor{edit_state_suffix}",
+    grid_df = df.copy()
+    grid_df["__row_sig"] = summary_signatures
+    grid_df["__highlight"] = highlight_mask.astype(bool)
+    pre_selected_rows = [
+        idx for idx, sig in enumerate(summary_signatures.tolist()) if sig in previously_selected_signatures
+    ]
+
+    gb = GridOptionsBuilder.from_dataframe(grid_df)
+    gb.configure_default_column(editable=False, sortable=True, filter=True, resizable=True)
+    if len(df.columns) > 0:
+        gb.configure_column(
+            df.columns[0],
+            checkboxSelection=True,
+            headerCheckboxSelection=True,
+            headerCheckboxSelectionFilteredOnly=True,
+        )
+    gb.configure_column("__row_sig", hide=True)
+    gb.configure_column("__highlight", hide=True)
+    gb.configure_selection(
+        "multiple",
+        use_checkbox=True,
+        pre_selected_rows=pre_selected_rows,
+        rowMultiSelectWithClick=True,
     )
 
-    selected_raw_mask = selected_rows["_copy"].astype(bool)
-    effective_selected_mask = selected_raw_mask & highlight_mask
-    ignored_count = int((selected_raw_mask & ~highlight_mask).sum())
-    selected_signatures = set(summary_signatures[effective_selected_mask].tolist())
+    grid_options = gb.build()
+    grid_options["isRowSelectable"] = JsCode(
+        "function(node) { return !!(node.data && node.data.__highlight); }"
+    )
+    grid_options["getRowStyle"] = JsCode(
+        """
+        function(params) {
+            if (params.data && params.data.__highlight) {
+                return {backgroundColor: '#fff6cc'};
+            }
+            return null;
+        }
+        """
+    )
+
+    grid_response = AgGrid(
+        grid_df,
+        gridOptions=grid_options,
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        fit_columns_on_grid_load=False,
+        allow_unsafe_jscode=True,
+        height=360,
+        key=f"full_summary_grid{edit_state_suffix}",
+    )
+
+    selected_rows = grid_response.get("selected_rows", [])
+    if isinstance(selected_rows, pd.DataFrame):
+        selected_sig_list = selected_rows.get("__row_sig", pd.Series([], dtype="object")).dropna().tolist()
+    else:
+        selected_sig_list = [
+            row.get("__row_sig") for row in (selected_rows or []) if row.get("__row_sig") is not None
+        ]
+
+    selected_signatures = set(sig for sig in selected_sig_list if sig in highlight_signatures)
+    ignored_count = len(selected_sig_list) - len(selected_signatures)
     st.session_state[key_copy_selection] = sorted(selected_signatures)
+
+    deselected_signatures = previously_selected_signatures - selected_signatures
+    if deselected_signatures:
+        latest_current_df = st.session_state.get(key_current)
+        updated_current_df, removed_rows = _drop_added_rows_by_signatures(
+            latest_current_df,
+            deselected_signatures,
+        )
+        if removed_rows > 0:
+            st.session_state[key_current] = updated_current_df
+            st.session_state[key_version] = st.session_state.get(key_version, 0) + 1
+            st.session_state[key_force_dirty] = True
+            st.session_state[key_editor_status] = {
+                "level": "info",
+                "text": f"Removed {removed_rows} unchecked added row(s) from pending edit changes.",
+            }
+            st.rerun()
 
     if ignored_count > 0:
         st.info("Only highlighted rows are eligible for copy. Non-highlighted selections were ignored.")
@@ -322,8 +405,9 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
         st.session_state[key_pending_missing] = sorted(
             (set(st.session_state.get(key_pending_missing, [])) | copied_signatures) & all_summary_signatures
         )
+        # Keep copied selections checked so users can uncheck later to remove pending adds.
         st.session_state[key_copy_selection] = sorted(
-            set(st.session_state.get(key_copy_selection, [])) - copied_signatures
+            set(st.session_state.get(key_copy_selection, [])) | copied_signatures
         )
 
         st.session_state[key_editor_status] = {

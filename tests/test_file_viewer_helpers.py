@@ -6,7 +6,9 @@ from src.ui.file_viewer import (
     _align_rows_to_columns,
     _build_previous_state,
     _df_without_helper_cols,
+    _drop_added_rows_by_signatures,
     _missing_summary_mask,
+    _row_signatures,
     _summary_to_edit_suffix,
 )
 
@@ -191,3 +193,40 @@ def test_build_previous_state_uses_current_editor_df_for_undo_snapshot():
     assert snapshot["current_df"].equals(editor_df)
     assert snapshot["last_saved"] == "v1.csv"
     assert snapshot["last_saved_url"] == "https://example.com/v1.csv"
+
+
+def test_drop_added_rows_by_signatures_removes_only_added_matches():
+    editor_df = pd.DataFrame(
+        [
+            {"_to_delete": False, "_added": False, "A": 1, "B": "keep"},
+            {"_to_delete": False, "_added": True, "A": 2, "B": "drop"},
+            {"_to_delete": False, "_added": True, "A": 3, "B": "keep-added"},
+        ]
+    )
+
+    target_sig = [_row_signatures(pd.DataFrame([{"A": 2, "B": "drop"}])).iloc[0]]
+
+    updated_df, removed_rows = _drop_added_rows_by_signatures(editor_df, target_sig)
+
+    assert removed_rows == 1
+    assert updated_df.to_dict("records") == [
+        {"_to_delete": False, "_added": False, "A": 1, "B": "keep"},
+        {"_to_delete": False, "_added": True, "A": 3, "B": "keep-added"},
+    ]
+
+
+def test_drop_added_rows_by_signatures_keeps_non_added_duplicates():
+    editor_df = pd.DataFrame(
+        [
+            {"_to_delete": False, "_added": False, "A": 9, "B": "dup"},
+            {"_to_delete": False, "_added": True, "A": 9, "B": "dup"},
+        ]
+    )
+    target_sig = [_row_signatures(pd.DataFrame([{"A": 9, "B": "dup"}])).iloc[0]]
+
+    updated_df, removed_rows = _drop_added_rows_by_signatures(editor_df, target_sig)
+
+    assert removed_rows == 1
+    assert updated_df.to_dict("records") == [
+        {"_to_delete": False, "_added": False, "A": 9, "B": "dup"},
+    ]
