@@ -291,21 +291,23 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
         pre_selected_rows=pre_selected_rows,
         rowMultiSelectWithClick=True,
     )
+    gb.configure_grid_options(
+        isRowSelectable=JsCode(
+            "function(node) { return !!(node.data && node.data.__highlight); }"
+        ),
+        getRowStyle=JsCode(
+            """
+            function(params) {
+                if (params.data && params.data.__highlight) {
+                    return {backgroundColor: '#fff6cc'};
+                }
+                return null;
+            }
+            """
+        ),
+    )
 
     grid_options = gb.build()
-    grid_options["isRowSelectable"] = JsCode(
-        "function(node) { return !!(node.data && node.data.__highlight); }"
-    )
-    grid_options["getRowStyle"] = JsCode(
-        """
-        function(params) {
-            if (params.data && params.data.__highlight) {
-                return {backgroundColor: '#fff6cc'};
-            }
-            return null;
-        }
-        """
-    )
 
     grid_response = AgGrid(
         grid_df,
