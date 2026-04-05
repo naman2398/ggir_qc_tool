@@ -288,7 +288,7 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
         use_container_width=True,
         hide_index=True,
         height=min(250, 36 * (len(selector_df) + 1)),
-        key=f"missing_rows_editor{edit_state_suffix}",
+        key=f"missing_rows_editor{edit_state_suffix}_{st.session_state.get(key_version, 0)}",
     )
 
     selected_signatures = set(
@@ -885,7 +885,6 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                 st.session_state[key_force_dirty] = False
                 st.session_state[key_copy_selection] = []
                 st.session_state[key_pending_missing] = []
-                st.session_state.pop(f"missing_rows_editor{state_suffix}", None)
                 st.session_state[key_editor_status] = {
                     "level": "success",
                     "text": "✅ Saved changes undone.",
