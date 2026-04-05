@@ -860,11 +860,9 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                 if save_state_history:
                     previous_state = save_state_history[-1]
                     st.session_state[key_save_state_history] = save_state_history[:-1]
-                    st.session_state[key_original] = previous_state["original_df"].copy()
-                    restored_current = previous_state["current_df"].copy()
-                    if "_added" not in restored_current.columns:
-                        restored_current.insert(1, "_added", False)
-                    st.session_state[key_current] = restored_current
+                    restored_original = previous_state["original_df"].copy()
+                    st.session_state[key_original] = restored_original
+                    st.session_state[key_current] = _df_with_delete_col(restored_original)
                     if previous_state.get("last_saved"):
                         st.session_state[key_last_saved] = previous_state["last_saved"]
                     else:
