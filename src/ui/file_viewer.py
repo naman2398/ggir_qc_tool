@@ -94,6 +94,21 @@ def _row_signatures(df):
     return prepared.apply(_to_sig, axis=1)
 
 
+def _align_rows_to_columns(rows_df, target_columns):
+    """Align rows to an existing schema without expanding it."""
+    return rows_df.reindex(columns=list(target_columns)).copy()
+
+
+def _build_previous_state(original_df, editor_df, last_saved, last_saved_url):
+    """Create undo snapshot from the current editor state."""
+    return {
+        "original_df": original_df.copy(),
+        "current_df": editor_df.copy(),
+        "last_saved": last_saved,
+        "last_saved_url": last_saved_url,
+    }
+
+
 def _missing_summary_mask(summary_df, edit_df):
     """Return boolean mask for summary rows that are missing from edit rows."""
     summary_norm = _normalize_for_compare(summary_df)
@@ -246,7 +261,8 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
             st.rerun()
 
         latest_edit_clean = _df_without_helper_cols(latest_current_df)
-        updated_edit = pd.concat([latest_edit_clean, rows_to_copy], ignore_index=True)
+        rows_to_copy_aligned = _align_rows_to_columns(rows_to_copy, latest_edit_clean.columns)
+        updated_edit = pd.concat([latest_edit_clean, rows_to_copy_aligned], ignore_index=True)
         if "_added" in latest_current_df.columns:
             existing_added = latest_current_df["_added"].astype(bool).tolist()
         else:
@@ -782,12 +798,12 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
             st.error("❌ Cannot save: all rows are marked for deletion.")
         else:
             with st.spinner("Saving new version..."):
-                previous_state = {
-                    "original_df": st.session_state[key_original].copy(),
-                    "current_df": st.session_state[key_current].copy(),
-                    "last_saved": st.session_state.get(key_last_saved),
-                    "last_saved_url": st.session_state.get(key_last_saved_url),
-                }
+                previous_state = _build_previous_state(
+                    original_df=st.session_state[key_original],
+                    editor_df=edited_df,
+                    last_saved=st.session_state.get(key_last_saved),
+                    last_saved_url=st.session_state.get(key_last_saved_url),
+                )
                 new_file = upload_csv(
                     access_token, folder_path,
                     settings.TARGET_FILES["csv"], save_df, username,
@@ -818,12 +834,12 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
     if save_without_changes_button:
         unchanged_df = st.session_state[key_original].copy()
         with st.spinner("Saving unchanged copy..."):
-            previous_state = {
-                "original_df": st.session_state[key_original].copy(),
-                "current_df": st.session_state[key_current].copy(),
-                "last_saved": st.session_state.get(key_last_saved),
-                "last_saved_url": st.session_state.get(key_last_saved_url),
-            }
+            previous_state = _build_previous_state(
+                original_df=st.session_state[key_original],
+                editor_df=edited_df,
+                last_saved=st.session_state.get(key_last_saved),
+                last_saved_url=st.session_state.get(key_last_saved_url),
+            )
             new_file = upload_csv(
                 access_token,
                 folder_path,
