@@ -2,6 +2,8 @@
 GGIR QC Tool Configuration
 """
 
+import os
+
 # Device Configuration
 DEVICE_ACTICAL = "Actical"
 DEVICE_ACTIWATCH = "ActiwatchL"
@@ -74,3 +76,8 @@ ACTIVITY_LOG_HEADERS = [
 GRAPH_API_ENDPOINT = "https://graph.microsoft.com/v1.0"
 AUTHORITY_URL = "https://login.microsoftonline.com/{tenant_id}"
 SCOPES = ["https://graph.microsoft.com/.default"]
+
+# PDF proxy configuration (used to serve PDFs without SharePoint login)
+PDF_PROXY_BASE_URL = os.getenv("PDF_PROXY_BASE_URL", "http://localhost:8502")
+PDF_PROXY_CACHE_ENABLED = os.getenv("PDF_PROXY_CACHE_ENABLED", "false").lower() in ("1", "true", "yes")
+PDF_PROXY_CACHE_DIR = os.getenv("PDF_PROXY_CACHE_DIR", ".pdf_cache")

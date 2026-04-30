@@ -19,6 +19,10 @@ PyYAML>=6.0
 requests>=2.31.0
 openpyxl>=3.1.0
 
+# PDF proxy service
+fastapi>=0.110.0
+uvicorn>=0.29.0
+
 # Testing
 pytest>=7.4.0
 pytest-cov>=4.1.0

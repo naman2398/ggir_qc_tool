@@ -1,7 +1,9 @@
 """File Viewer UI Component"""
 
 from collections import Counter
+import html
 import json
+from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
@@ -27,6 +29,32 @@ from src.ui.activity_logging import (
 
 
 _HELPER_COLUMNS = ["_to_delete", "_added"]
+
+
+def _build_pdf_proxy_url(file_id, filename=None):
+    """Build a stable PDF proxy URL for a SharePoint item id."""
+    base_url = settings.PDF_PROXY_BASE_URL.rstrip("/")
+    if not base_url or not file_id:
+        return ""
+    encoded_id = quote(str(file_id), safe="")
+    url = f"{base_url}/pdf/{encoded_id}"
+    if filename:
+        url = f"{url}?name={quote(str(filename), safe='')}"
+    return url
+
+
+def _render_new_tab_link(label, url, bullet=False):
+    """Render an HTML link that always opens in a new tab."""
+    if not url:
+        st.warning("PDF proxy not configured or missing file id.")
+        return
+    safe_label = html.escape(label)
+    safe_url = html.escape(url, quote=True)
+    prefix = "- " if bullet else ""
+    st.markdown(
+        f"{prefix}<a href=\"{safe_url}\" target=\"_blank\" rel=\"noopener noreferrer\">{safe_label}</a>",
+        unsafe_allow_html=True,
+    )
 
 
 def _df_with_delete_col(df, added_mask=None):
@@ -413,7 +441,11 @@ def _render_single_phase_viewer(
     with col1:
         if pdf_file_sleep:
             st.markdown(f"**{settings.TARGET_FILES['pdf_sleep']}**")
-            st.markdown(f"[🔗 Open PDF]({pdf_file_sleep['webUrl']})")
+            proxy_url = _build_pdf_proxy_url(
+                pdf_file_sleep.get("id"),
+                pdf_file_sleep.get("name")
+            )
+            _render_new_tab_link("Open PDF", proxy_url)
         else:
             st.warning(f"⚠️ {settings.TARGET_FILES['pdf_sleep']} not found")
 
@@ -421,7 +453,9 @@ def _render_single_phase_viewer(
         if pdf_file_data:
             st.markdown(f"**{settings.TARGET_FILES['pdf_data']}**")
             for pdf in pdf_file_data:
-                st.markdown(f"- [🔗 {pdf['name']}]({pdf['webUrl']})")
+                proxy_url = _build_pdf_proxy_url(pdf.get("id"), pdf.get("name"))
+                label = pdf.get("name", "Open PDF")
+                _render_new_tab_link(label, proxy_url, bullet=True)
         else:
             st.warning(f"⚠️ No PDFs found under {settings.TARGET_FILES['pdf_data']}")
 
@@ -478,14 +512,20 @@ def _render_multi_phase_viewer(phase_files, access_token, username, participant_
             with col1:
                 if pdf_sleep:
                     st.markdown(f"**{settings.TARGET_FILES['pdf_sleep']}**")
-                    st.markdown(f"[🔗 Open — {phase}]({pdf_sleep['webUrl']})")
+                    proxy_url = _build_pdf_proxy_url(
+                        pdf_sleep.get("id"),
+                        pdf_sleep.get("name")
+                    )
+                    _render_new_tab_link(f"Open — {phase}", proxy_url)
                 else:
                     st.warning(f"⚠️ {settings.TARGET_FILES['pdf_sleep']} not found")
             with col2:
                 if pdf_data:
                     st.markdown(f"**{settings.TARGET_FILES['pdf_data']}**")
                     for pdf in pdf_data:
-                        st.markdown(f"- [🔗 {pdf['name']} — {phase}]({pdf['webUrl']})")
+                        proxy_url = _build_pdf_proxy_url(pdf.get("id"), pdf.get("name"))
+                        label = f"{pdf.get('name', 'Open PDF')} — {phase}"
+                        _render_new_tab_link(label, proxy_url, bullet=True)
                 else:
                     st.warning(f"⚠️ No PDFs found under {settings.TARGET_FILES['pdf_data']}")
 

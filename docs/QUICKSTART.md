@@ -44,6 +44,16 @@ tenant_id = "your-tenant-id"
 streamlit run app.py
 ```
 
+For PDF viewing without SharePoint login, run the proxy in a second terminal:
+```bash
+make run-proxy
+```
+
+If the proxy runs on a different host or port, set:
+```bash
+export PDF_PROXY_BASE_URL="http://localhost:8502"
+```
+
 ### Add Users
 Add email addresses to `App_Access_List.xlsx` in SharePoint (column A with header "email").
 

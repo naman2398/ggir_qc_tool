@@ -48,6 +48,10 @@ Device types, phase mappings, SharePoint paths, API endpoints.
 - `search_interface.py`: Device/participant search (`render_search_interface()`)
 - `file_viewer.py`: CSV editor (`render_file_viewer()`)
 
+### pdf_proxy.py
+- FastAPI service that streams PDFs from Graph using the app token.
+- Provides stable, non-expiring links for in-app PDF viewing.
+
 ## Data Flow
 
 1. **Login**: User email → `check_user_authorization()` → Access token

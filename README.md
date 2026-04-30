@@ -24,6 +24,15 @@ client_id = "your-client-id"
 client_secret = "your-client-secret"
 tenant_id = "your-tenant-id"
 ```
+Run the PDF proxy in a second terminal (required for in-app PDF viewing without SharePoint login):
+```bash
+make run-proxy
+```
+
+If the proxy runs on a different host or port, set:
+```bash
+export PDF_PROXY_BASE_URL="http://localhost:8502"
+```
 
 ## Project Structure
 

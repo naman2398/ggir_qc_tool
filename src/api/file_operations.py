@@ -16,27 +16,37 @@ def _device_folder_name(device):
     return settings.DEVICE_SHAREPOINT_FOLDER.get(device, device)
 
 
-@st.cache_data(ttl=3600)
-def get_drive_id(_access_token):
-    """Get SharePoint document library drive ID (cached 1 hour)."""
-    headers = {"Authorization": f"Bearer {_access_token}"}
-    
+def _resolve_drive_id(access_token):
+    """Resolve SharePoint document library drive ID."""
+    headers = {"Authorization": f"Bearer {access_token}"}
+
     # Get site ID
     site_url = f"{settings.GRAPH_API_ENDPOINT}/sites/{settings.SHAREPOINT_HOSTNAME}:{settings.SHAREPOINT_SITE_PATH}"
     site_resp = requests.get(site_url, headers=headers)
     site_resp.raise_for_status()
     site_id = site_resp.json()["id"]
-    
+
     # Get drives and find matching library
     drives_url = f"{settings.GRAPH_API_ENDPOINT}/sites/{site_id}/drives"
     drives_resp = requests.get(drives_url, headers=headers)
     drives_resp.raise_for_status()
-    
+
     for drive in drives_resp.json()["value"]:
         if drive["name"] == settings.DOCUMENT_LIBRARY:
             return drive["id"]
-    
+
     raise ValueError(f"Document library '{settings.DOCUMENT_LIBRARY}' not found")
+
+
+@st.cache_data(ttl=3600)
+def get_drive_id(_access_token):
+    """Get SharePoint document library drive ID (cached 1 hour)."""
+    return _resolve_drive_id(_access_token)
+
+
+def get_drive_id_uncached(access_token):
+    """Get SharePoint document library drive ID (no caching)."""
+    return _resolve_drive_id(access_token)
 
 
 def build_folder_path(device, phase, participant_id):

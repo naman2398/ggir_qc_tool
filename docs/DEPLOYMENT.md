@@ -67,6 +67,23 @@ Run:
 streamlit run app.py
 ```
 
+Start the PDF proxy service in a separate process so PDFs open in a new tab
+without SharePoint login:
+```bash
+python -m uvicorn pdf_proxy:app --host 0.0.0.0 --port 8502
+```
+
+Set the proxy base URL for the Streamlit app (for local or hosted proxies):
+```bash
+export PDF_PROXY_BASE_URL="http://localhost:8502"
+```
+
+Optional: enable server-side PDF caching:
+```bash
+export PDF_PROXY_CACHE_ENABLED="true"
+export PDF_PROXY_CACHE_DIR=".pdf_cache"
+```
+
 ## Step 4: Deploy to Azure App Service
 
 ```bash

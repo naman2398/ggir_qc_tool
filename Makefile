@@ -6,6 +6,7 @@ VENV     = venv/bin
 PYTHON   = $(VENV)/python
 PY_TEST  = $(VENV)/pytest
 STREAMLIT = $(VENV)/streamlit
+UVICORN = $(PYTHON) -m uvicorn
 
 # ── Default ───────────────────────────────────────────────────────────────────
 .DEFAULT_GOAL := help
@@ -18,6 +19,7 @@ help:
 	@echo "  make test-cov    Run tests with coverage report"
 	@echo "  make run-mock    Launch mock UI (no Azure credentials needed)"
 	@echo "  make run         Launch real app (requires .streamlit/secrets.toml)"
+	@echo "  make run-proxy   Launch PDF proxy service (port 8502)"
 	@echo "  make check       Run tests then launch mock UI"
 	@echo "  make setup       Create venv and install all dependencies"
 	@echo ""
@@ -51,6 +53,10 @@ run:
 	fi
 	$(STREAMLIT) run app.py
 
+# PDF proxy service (required for in-app PDF viewing without SharePoint login)
+run-proxy:
+	$(UVICORN) pdf_proxy:app --host 0.0.0.0 --port 8502
+
 # ── Pre-push checklist ────────────────────────────────────────────────────────
 # Run this before pushing to dev to catch issues before GitHub Actions does
 check: test
@@ -60,4 +66,4 @@ check: test
 	@echo ""
 	$(STREAMLIT) run app_mock.py
 
-.PHONY: help setup test test-cov run-mock run check
+.PHONY: help setup test test-cov run-mock run run-proxy check
