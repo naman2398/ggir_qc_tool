@@ -38,6 +38,9 @@ TARGET_FILES = {
     "csv": "part4_nightsummary_sleep_cleaned.csv",
     "csv_full": "part4_nightsummary_sleep_full.csv",
     "csv_full_subfolder": "QC/",
+    "day_csv_prefix": "part5_daysummary_",
+    "day_csv_full_prefix": "part5_daysummary_full",
+    "day_csv_full_subfolder": "QC/",
     "pdf_sleep": "visualisation_sleep.pdf",
     "pdf_data": "file summary reports/"
 }

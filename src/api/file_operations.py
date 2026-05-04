@@ -81,6 +81,8 @@ def find_all_phase_files(access_token, device, participant_id):
                 "pdf_file_sleep": dict | None,
                 "pdf_file_data":  list[dict],
                 "qc_csv_file":    dict | None,  # results/QC/part4_nightsummary_sleep_full.csv
+                "day_csv_file":   dict | None,  # results/part5_daysummary_*.csv
+                "day_qc_csv_file": dict | None, # results/QC/part5_daysummary_full*.csv
             },
             ...
         ]
@@ -94,12 +96,20 @@ def find_all_phase_files(access_token, device, participant_id):
         pdf_data = list_pdfs_in_subfolder(
             access_token, folder_path, settings.TARGET_FILES["pdf_data"]
         )
-        qc_csv_file = find_file(
+        qc_csv_file = find_qc_csv(access_token, folder_path)
+        day_csv_file = find_csv_by_prefix(
             access_token,
-            folder_path + settings.TARGET_FILES["csv_full_subfolder"],
-            settings.TARGET_FILES["csv_full"],
+            folder_path,
+            settings.TARGET_FILES["day_csv_prefix"],
+            exclude_prefixes=[settings.TARGET_FILES["day_csv_full_prefix"]],
         )
-        if any([csv_file, pdf_sleep, pdf_data, qc_csv_file]):
+        day_qc_csv_file = find_qc_csv_by_prefix(
+            access_token,
+            folder_path,
+            settings.TARGET_FILES["day_csv_full_prefix"],
+            subfolder=settings.TARGET_FILES["day_csv_full_subfolder"],
+        )
+        if any([csv_file, pdf_sleep, pdf_data, qc_csv_file, day_csv_file, day_qc_csv_file]):
             results.append({
                 "phase": phase,
                 "folder_path": folder_path,
@@ -107,6 +117,8 @@ def find_all_phase_files(access_token, device, participant_id):
                 "pdf_file_sleep": pdf_sleep,
                 "pdf_file_data": pdf_data,
                 "qc_csv_file": qc_csv_file,
+                "day_csv_file": day_csv_file,
+                "day_qc_csv_file": day_qc_csv_file,
             })
     return results
 
@@ -191,6 +203,87 @@ def find_file(access_token, folder_path, filename, root_path=None):
     except Exception as e:
         st.error(f"Error finding file: {e}")
         return None
+
+
+def list_files_in_folder(access_token, folder_path, root_path=None):
+    """List files in a SharePoint folder. Returns file info dicts."""
+    try:
+        drive_id = get_drive_id(access_token)
+        if root_path is None:
+            root_path = settings.ROOT_FOLDER_PATH
+
+        full_path = f"{root_path}/{folder_path}".rstrip("/")
+        encoded_path = quote(full_path, safe="/")
+
+        url = f"{settings.GRAPH_API_ENDPOINT}/drives/{drive_id}/root:/{encoded_path}:/children"
+        resp = requests.get(url, headers={"Authorization": f"Bearer {access_token}"})
+        if resp.status_code != 200:
+            return []
+
+        files = []
+        for item in resp.json().get("value", []):
+            if item.get("folder"):
+                continue
+            name = item.get("name", "")
+            if not name:
+                continue
+            files.append({
+                "id": item["id"],
+                "name": name,
+                "webUrl": item.get("webUrl", ""),
+                "downloadUrl": item.get("@microsoft.graph.downloadUrl", ""),
+            })
+        return files
+    except Exception as e:
+        st.error(f"Error listing files: {e}")
+        return []
+
+
+def find_csv_by_prefix(access_token, folder_path, prefix, root_path=None, exclude_prefixes=None):
+    """Find the lexicographically highest CSV file in a folder matching a prefix."""
+    exclude_prefixes = exclude_prefixes or []
+    files = list_files_in_folder(access_token, folder_path, root_path=root_path)
+    matches = []
+    for item in files:
+        name = item.get("name", "")
+        if not name.lower().endswith(".csv"):
+            continue
+        if not name.startswith(prefix):
+            continue
+        if any(name.startswith(exclude) for exclude in exclude_prefixes):
+            continue
+        matches.append(item)
+
+    if not matches:
+        return None
+
+    matches.sort(key=lambda item: item["name"])
+    return matches[-1]
+
+
+def find_qc_csv_by_prefix(access_token, folder_path, prefix, exclude_prefixes=None, subfolder=None):
+    """Find a QC CSV by prefix, preferring the QC root over the final root."""
+    if subfolder is None:
+        subfolder = settings.TARGET_FILES["csv_full_subfolder"]
+
+    qc_folder = folder_path + subfolder
+    qc_file = find_csv_by_prefix(
+        access_token,
+        qc_folder,
+        prefix,
+        root_path=settings.QC_ROOT_FOLDER_PATH,
+        exclude_prefixes=exclude_prefixes,
+    )
+    if qc_file:
+        return qc_file
+
+    return find_csv_by_prefix(
+        access_token,
+        qc_folder,
+        prefix,
+        root_path=settings.ROOT_FOLDER_PATH,
+        exclude_prefixes=exclude_prefixes,
+    )
 
 
 def list_pdfs_in_subfolder(access_token, folder_path, subfolder):

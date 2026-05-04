@@ -20,6 +20,7 @@ from src.ui.activity_logging import (
     DECISION_SKIPPED,
     activity_rows_key,
     comment_key,
+    day_phase_label,
     decision_key,
     last_entry_key,
     modified_key,
@@ -223,7 +224,14 @@ def _copy_selection_key(state_suffix):
     return f"summary_copy_selection{state_suffix}"
 
 
-def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
+def _render_readonly_csv(
+    qc_csv_file,
+    access_token,
+    state_suffix,
+    phase_label,
+    display_name=None,
+    missing_hint=None,
+):
     """Render a read-only view of the full QC summary CSV."""
     key_qc_df = f"qc_df{state_suffix}"
     edit_state_suffix = _summary_to_edit_suffix(state_suffix)
@@ -235,12 +243,15 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
     key_copy_selection = _copy_selection_key(edit_state_suffix)
 
     if not qc_csv_file:
-        st.info(f"ℹ️ {settings.TARGET_FILES['csv_full']} not found at results/QC/")
+        missing_label = missing_hint or display_name or settings.TARGET_FILES["csv_full"]
+        st.info(f"ℹ️ {missing_label} not found at results/QC/")
         return
+
+    title_name = display_name or qc_csv_file.get("name") or settings.TARGET_FILES["csv_full"]
 
     col_title, col_link = st.columns([3, 1])
     with col_title:
-        st.markdown(f"**{settings.TARGET_FILES['csv_full']}**")
+        st.markdown(f"**{title_name}**")
     with col_link:
         if qc_csv_file.get("webUrl"):
             st.markdown(f"[🔗 Open in SharePoint]({qc_csv_file['webUrl']})")
@@ -426,6 +437,7 @@ def _render_readonly_csv(qc_csv_file, access_token, state_suffix, phase_label):
 def _render_single_phase_viewer(
     participant_id, device, phase, folder_path,
     csv_file, pdf_file_sleep, pdf_file_data,
+    day_csv_file, day_qc_csv_file,
     access_token, username,
 ):
     """Render file viewer for a single-phase (non-phased) device."""
@@ -433,6 +445,7 @@ def _render_single_phase_viewer(
 
     path_display = f"{device}" + (f" / {phase}" if phase else "") + f" / {participant_id}"
     st.info(f"📁 **Path**: {path_display}")
+    base_phase_label = phase or "NoPhase"
 
     # PDF links
     st.subheader("📄 Reports (Read-Only)")
@@ -461,27 +474,62 @@ def _render_single_phase_viewer(
 
     st.markdown("---")
 
-    # Read-only QC full CSV
-    st.subheader("📋 Full Summary Data")
+    # Read-only QC full CSV (night summary)
+    st.subheader("📋 Night Summary Data")
     _ensure_edit_state_loaded(csv_file=csv_file, access_token=access_token, state_suffix="")
     _render_readonly_csv(
         qc_csv_file=st.session_state.get("qc_csv_file"),
         access_token=access_token,
         state_suffix="",
-        phase_label=phase or "NoPhase",
+        phase_label=base_phase_label,
     )
 
     st.markdown("---")
 
-    # Editable CSV
-    st.subheader("✏️ Edit Data File")
+    # Editable CSV (night summary)
+    st.subheader("✏️ Edit Night Summary Data File")
     _render_csv_editor(
         csv_file=csv_file,
         folder_path=folder_path,
         access_token=access_token,
         username=username,
         state_suffix="",          # no suffix → uses original_df, current_df, etc.
-        phase_label=phase or "NoPhase",
+        phase_label=base_phase_label,
+        base_filename=settings.TARGET_FILES["csv"],
+        display_name=settings.TARGET_FILES["csv"],
+    )
+
+    st.markdown("---")
+
+    # Day summary (read-only + editable)
+    st.subheader("📋 Day Summary Data")
+    day_csv_name = day_csv_file.get("name") if day_csv_file else None
+    day_qc_name = day_qc_csv_file.get("name") if day_qc_csv_file else None
+    day_phase = day_phase_label(base_phase_label)
+
+    _ensure_edit_state_loaded(csv_file=day_csv_file, access_token=access_token, state_suffix="_day")
+    _render_readonly_csv(
+        qc_csv_file=day_qc_csv_file,
+        access_token=access_token,
+        state_suffix="_qc_day",
+        phase_label=day_phase,
+        display_name=day_qc_name,
+        missing_hint=f"{settings.TARGET_FILES['day_csv_full_prefix']}*.csv",
+    )
+
+    st.markdown("---")
+
+    st.subheader("✏️ Edit Day Summary Data File")
+    _render_csv_editor(
+        csv_file=day_csv_file,
+        folder_path=folder_path,
+        access_token=access_token,
+        username=username,
+        state_suffix="_day",
+        phase_label=day_phase,
+        base_filename=day_csv_name,
+        display_name=day_csv_name,
+        missing_hint=f"{settings.TARGET_FILES['day_csv_prefix']}*.csv",
     )
 
 
@@ -532,9 +580,9 @@ def _render_multi_phase_viewer(phase_files, access_token, username, participant_
     st.markdown("---")
 
     # ------------------------------------------------------------------
-    # Read-only QC full CSVs: one tab per phase
+    # Read-only QC full CSVs: one tab per phase (night summary)
     # ------------------------------------------------------------------
-    st.subheader("📋 Full Summary Data")
+    st.subheader("📋 Night Summary Data")
 
     qc_phases = [pf for pf in phase_files if pf.get("qc_csv_file")]
     if not qc_phases:
@@ -559,28 +607,89 @@ def _render_multi_phase_viewer(phase_files, access_token, username, participant_
     st.markdown("---")
 
     # ------------------------------------------------------------------
-    # CSVs: one tab per phase
+    # CSVs: one tab per phase (night summary)
     # ------------------------------------------------------------------
-    st.subheader("✏️ Edit Data Files")
+    st.subheader("✏️ Edit Night Summary Data Files")
 
     csv_phases = [pf for pf in phase_files if pf["csv_file"]]
     if not csv_phases:
         st.warning(f"⚠️ {settings.TARGET_FILES['csv']} not found in any phase.")
-        return
+    else:
+        tab_labels = [pf["phase"] for pf in csv_phases]
+        tabs = st.tabs(tab_labels)
 
-    tab_labels = [pf["phase"] for pf in csv_phases]
-    tabs = st.tabs(tab_labels)
+        for tab, pf in zip(tabs, csv_phases):
+            with tab:
+                _render_csv_editor(
+                    csv_file=pf["csv_file"],
+                    folder_path=pf["folder_path"],
+                    access_token=access_token,
+                    username=username,
+                    state_suffix=f"_{pf['phase']}",   # e.g. _Baseline, _Overnight
+                    phase_label=pf["phase"],
+                    base_filename=settings.TARGET_FILES["csv"],
+                    display_name=settings.TARGET_FILES["csv"],
+                )
 
-    for tab, pf in zip(tabs, csv_phases):
-        with tab:
-            _render_csv_editor(
-                csv_file=pf["csv_file"],
-                folder_path=pf["folder_path"],
-                access_token=access_token,
-                username=username,
-                state_suffix=f"_{pf['phase']}",   # e.g. _Baseline, _Overnight
-                phase_label=pf["phase"],
-            )
+    st.markdown("---")
+
+    # ------------------------------------------------------------------
+    # Day summary: read-only QC full CSVs
+    # ------------------------------------------------------------------
+    st.subheader("📋 Day Summary Data")
+
+    day_qc_phases = [pf for pf in phase_files if pf.get("day_qc_csv_file")]
+    if not day_qc_phases:
+        st.info(
+            f"ℹ️ {settings.TARGET_FILES['day_csv_full_prefix']}*.csv not found in any phase."
+        )
+    else:
+        day_qc_tab_labels = [pf["phase"] for pf in day_qc_phases]
+        day_qc_tabs = st.tabs(day_qc_tab_labels)
+        for tab, pf in zip(day_qc_tabs, day_qc_phases):
+            with tab:
+                _ensure_edit_state_loaded(
+                    csv_file=pf.get("day_csv_file"),
+                    access_token=access_token,
+                    state_suffix=f"_{pf['phase']}_day",
+                )
+                _render_readonly_csv(
+                    qc_csv_file=pf["day_qc_csv_file"],
+                    access_token=access_token,
+                    state_suffix=f"_qc_{pf['phase']}_day",
+                    phase_label=day_phase_label(pf["phase"]),
+                    display_name=pf["day_qc_csv_file"].get("name"),
+                    missing_hint=f"{settings.TARGET_FILES['day_csv_full_prefix']}*.csv",
+                )
+
+    st.markdown("---")
+
+    # ------------------------------------------------------------------
+    # Day summary: editable CSVs
+    # ------------------------------------------------------------------
+    st.subheader("✏️ Edit Day Summary Data Files")
+
+    day_csv_phases = [pf for pf in phase_files if pf.get("day_csv_file")]
+    if not day_csv_phases:
+        st.warning(
+            f"⚠️ {settings.TARGET_FILES['day_csv_prefix']}*.csv not found in any phase."
+        )
+    else:
+        day_tabs = st.tabs([pf["phase"] for pf in day_csv_phases])
+        for tab, pf in zip(day_tabs, day_csv_phases):
+            with tab:
+                day_csv_name = pf["day_csv_file"].get("name")
+                _render_csv_editor(
+                    csv_file=pf["day_csv_file"],
+                    folder_path=pf["folder_path"],
+                    access_token=access_token,
+                    username=username,
+                    state_suffix=f"_{pf['phase']}_day",
+                    phase_label=day_phase_label(pf["phase"]),
+                    base_filename=day_csv_name,
+                    display_name=day_csv_name,
+                    missing_hint=f"{settings.TARGET_FILES['day_csv_prefix']}*.csv",
+                )
 
 
 # =============================================================================
@@ -731,7 +840,17 @@ def _render_activity_log_panel(access_token, phase_label, panel_key_suffix):
         )
 
 
-def _render_csv_editor(csv_file, folder_path, access_token, username, state_suffix, phase_label):
+def _render_csv_editor(
+    csv_file,
+    folder_path,
+    access_token,
+    username,
+    state_suffix,
+    phase_label,
+    base_filename=None,
+    display_name=None,
+    missing_hint=None,
+):
     """
     Render an editable CSV data_editor block.
 
@@ -755,14 +874,20 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
     st.session_state.setdefault(key_save_state_history, [])
     st.session_state.setdefault(key_force_dirty, False)
 
+    if base_filename is None:
+        base_filename = settings.TARGET_FILES["csv"]
+
     if not csv_file:
-        st.warning(f"⚠️ {settings.TARGET_FILES['csv']} not found")
+        missing_label = missing_hint or display_name or base_filename
+        st.warning(f"⚠️ {missing_label} not found")
         return
+
+    title_name = display_name or csv_file.get("name") or base_filename
 
     # Original file link
     col_title, col_link = st.columns([3, 1])
     with col_title:
-        st.markdown(f"**{settings.TARGET_FILES['csv']}**")
+        st.markdown(f"**{title_name}**")
     with col_link:
         if csv_file.get("webUrl"):
             st.markdown(f"[🔗 Open original in SharePoint]({csv_file['webUrl']})")
@@ -953,7 +1078,7 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
                 )
                 new_file = upload_csv(
                     access_token, folder_path,
-                    settings.TARGET_FILES["csv"], save_df, username,
+                    base_filename, save_df, username,
                 )
                 if new_file:
                     st.session_state[key_original] = save_df.copy()
@@ -992,7 +1117,7 @@ def _render_csv_editor(csv_file, folder_path, access_token, username, state_suff
             new_file = upload_csv(
                 access_token,
                 folder_path,
-                settings.TARGET_FILES["csv"],
+                base_filename,
                 unchanged_df,
                 username,
                 filename_tag="unchanged",
@@ -1073,6 +1198,8 @@ def render_file_viewer():
         csv_file=st.session_state.get("csv_file"),
         pdf_file_sleep=st.session_state.get("pdf_file_sleep"),
         pdf_file_data=st.session_state.get("pdf_file_data", []),
+        day_csv_file=st.session_state.get("day_csv_file"),
+        day_qc_csv_file=st.session_state.get("day_qc_csv_file"),
         access_token=access_token,
         username=username,
     )

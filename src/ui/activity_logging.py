@@ -10,6 +10,14 @@ LOG_SAVED_FILES_PREFIX = "saved_files::"
 DECISION_LOGGED = "logged"
 DECISION_SKIPPED = "skipped"
 
+DAY_SUMMARY_LABEL = "Day Summary"
+
+
+def day_phase_label(phase):
+    """Format a phase label for day-summary logging."""
+    phase_value = phase if phase else "NoPhase"
+    return f"{phase_value} - {DAY_SUMMARY_LABEL}"
+
 
 def _scope_token(participant_id, monitor, phase):
     """Build a stable token for per-phase/per-participant activity state."""
@@ -49,10 +57,22 @@ def required_phase_labels(session_state):
         return []
 
     if "phase_files" in session_state:
-        labels = [pf["phase"] for pf in session_state["phase_files"] if pf.get("csv_file")]
+        labels = []
+        for pf in session_state["phase_files"]:
+            phase = pf.get("phase")
+            if pf.get("csv_file"):
+                labels.append(phase)
+            if pf.get("day_csv_file"):
+                labels.append(day_phase_label(phase))
         return labels
 
-    return [session_state.get("phase") or "NoPhase"]
+    labels = []
+    phase = session_state.get("phase") or "NoPhase"
+    if session_state.get("csv_file"):
+        labels.append(phase)
+    if session_state.get("day_csv_file"):
+        labels.append(day_phase_label(phase))
+    return labels
 
 
 def pending_phase_labels(session_state):

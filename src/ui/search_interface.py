@@ -10,8 +10,10 @@ from src.api.file_operations import (
     build_folder_path,
     check_participant_folder_exists,
     find_all_phase_files,
+    find_csv_by_prefix,
     find_file,
     find_qc_csv,
+    find_qc_csv_by_prefix,
     list_pdfs_in_subfolder,
 )
 from src.ui.activity_logging import all_activity_state_keys, has_pending_log_decisions, pending_phase_labels
@@ -73,6 +75,7 @@ def _clear_file_state():
     for key in [
         "participant_id", "device", "phase", "folder_path",
         "csv_file", "pdf_file_sleep", "pdf_file_data",
+        "day_csv_file", "day_qc_csv_file",
         "original_df", "current_df", "data_editor_version", "last_saved_file",
         "last_saved_url", "qc_csv_file", "phase_files", "save_without_btn", "undo_save_btn",
         "editor_status", "save_state_history", "missing_copy_editor", "copy_missing_rows",
@@ -274,8 +277,27 @@ def render_search_interface():
                     access_token, folder_path, settings.TARGET_FILES["pdf_data"]
                 )
                 qc_csv_file = find_qc_csv(access_token, folder_path)
+                day_csv_file = find_csv_by_prefix(
+                    access_token,
+                    folder_path,
+                    settings.TARGET_FILES["day_csv_prefix"],
+                    exclude_prefixes=[settings.TARGET_FILES["day_csv_full_prefix"]],
+                )
+                day_qc_csv_file = find_qc_csv_by_prefix(
+                    access_token,
+                    folder_path,
+                    settings.TARGET_FILES["day_csv_full_prefix"],
+                    subfolder=settings.TARGET_FILES["day_csv_full_subfolder"],
+                )
 
-                if not any([csv_file, pdf_file_sleep, pdf_file_data, qc_csv_file]):
+                if not any([
+                    csv_file,
+                    pdf_file_sleep,
+                    pdf_file_data,
+                    qc_csv_file,
+                    day_csv_file,
+                    day_qc_csv_file,
+                ]):
                     st.error(f"❌ No files found for {selected_device}/{participant_id}")
                     st.info("Please verify the device type and participant ID.")
                     return False, True
@@ -290,6 +312,8 @@ def render_search_interface():
                 st.session_state["pdf_file_sleep"] = pdf_file_sleep
                 st.session_state["pdf_file_data"] = pdf_file_data
                 st.session_state["qc_csv_file"] = qc_csv_file
+                st.session_state["day_csv_file"] = day_csv_file
+                st.session_state["day_qc_csv_file"] = day_qc_csv_file
 
             st.markdown("---")
             return True, True
