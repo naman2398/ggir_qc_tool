@@ -30,6 +30,8 @@ from src.ui.activity_logging import (
 
 
 _HELPER_COLUMNS = ["_to_delete", "_added"]
+_DATA_DICTIONARY_NIGHT_URL = "https://wadpac.github.io/GGIR/articles/GGIRoutput.html#ggir-part-4"
+_DATA_DICTIONARY_DAY_URL = "https://wadpac.github.io/GGIR/articles/GGIRoutput.html#ggir-part-5"
 
 
 def _build_pdf_proxy_url(file_id, filename=None):
@@ -56,6 +58,11 @@ def _render_new_tab_link(label, url, bullet=False):
         f"{prefix}<a href=\"{safe_url}\" target=\"_blank\" rel=\"noopener noreferrer\">{safe_label}</a>",
         unsafe_allow_html=True,
     )
+
+
+def _render_data_dictionary_link(label, url):
+    """Render a data dictionary link under section headers."""
+    _render_new_tab_link(label, url)
 
 
 def _df_with_delete_col(df, added_mask=None):
@@ -476,6 +483,7 @@ def _render_single_phase_viewer(
 
     # Read-only QC full CSV (night summary)
     st.subheader("📋 Night Summary Data")
+    _render_data_dictionary_link("Data Dictionary - Night Summary", _DATA_DICTIONARY_NIGHT_URL)
     _ensure_edit_state_loaded(csv_file=csv_file, access_token=access_token, state_suffix="")
     _render_readonly_csv(
         qc_csv_file=st.session_state.get("qc_csv_file"),
@@ -503,6 +511,7 @@ def _render_single_phase_viewer(
 
     # Day summary (read-only + editable)
     st.subheader("📋 Day Summary Data")
+    _render_data_dictionary_link("Data Dictionary - Day Summary", _DATA_DICTIONARY_DAY_URL)
     day_csv_name = day_csv_file.get("name") if day_csv_file else None
     day_qc_name = day_qc_csv_file.get("name") if day_qc_csv_file else None
     day_phase = day_phase_label(base_phase_label)
@@ -583,6 +592,7 @@ def _render_multi_phase_viewer(phase_files, access_token, username, participant_
     # Read-only QC full CSVs: one tab per phase (night summary)
     # ------------------------------------------------------------------
     st.subheader("📋 Night Summary Data")
+    _render_data_dictionary_link("Data Dictionary - Night Summary", _DATA_DICTIONARY_NIGHT_URL)
 
     qc_phases = [pf for pf in phase_files if pf.get("qc_csv_file")]
     if not qc_phases:
@@ -637,6 +647,7 @@ def _render_multi_phase_viewer(phase_files, access_token, username, participant_
     # Day summary: read-only QC full CSVs
     # ------------------------------------------------------------------
     st.subheader("📋 Day Summary Data")
+    _render_data_dictionary_link("Data Dictionary - Day Summary", _DATA_DICTIONARY_DAY_URL)
 
     day_qc_phases = [pf for pf in phase_files if pf.get("day_qc_csv_file")]
     if not day_qc_phases:
